@@ -29,6 +29,8 @@ object BuildSettings {
   val buildSbtVersion = propOr("play.sbt.version", "0.12.3")
   val buildSbtMajorVersion = "0.12"
   val buildSbtVersionBinaryCompatible = "0.12"
+  // Used by api docs generation to link back to the correct branch on GitHub, only when version is a SNAPSHOT
+  val sourceCodeBranch = propOr("git.branch", "master")
 
   lazy val PerformanceTest = config("pt") extend(Test)
 
@@ -78,7 +80,9 @@ object BuildSettings {
     previousArtifact := Some(buildOrganization %% name % previousVersion),
     scalacOptions ++= Seq("-encoding", "UTF-8", "-Xlint", "-deprecation", "-unchecked", "-feature"),
     publishArtifact in packageDoc := buildWithDoc,
-    publishArtifact in (Compile, packageSrc) := true)
+    publishArtifact in (Compile, packageSrc) := true,
+    ApiDocs.apiDocsInclude := true
+  )
 
   def PlaySbtProject(name: String, dir: String): Project = {
     Project(name, file("src/" + dir))
@@ -160,6 +164,7 @@ object PlayBuild extends Build {
       libraryDependencies := runtime,
       sourceGenerators in Compile <+= sourceManaged in Compile map PlayVersion,
       mappings in(Compile, packageSrc) <++= scalaTemplateSourceMappings,
+      ApiDocs.apiDocsIncludeManaged := true,
       parallelExecution in Test := false,
       sourceGenerators in Compile <+= (dependencyClasspath in TemplatesCompilerProject in Runtime, packageBin in TemplatesCompilerProject in Compile, scalaSource in Compile, sourceManaged in Compile, streams) map ScalaTemplates
     ).dependsOn(SbtLinkProject, PlayExceptionsProject, TemplatesProject, IterateesProject % "test->test;compile->compile", JsonProject)
@@ -206,6 +211,8 @@ object PlayBuild extends Build {
     .settings(libraryDependencies := javaDeps)
     .dependsOn(PlayProject)
     .dependsOn(PlayTestProject % "test")
+  
+  import ScriptedPlugin._
 
   lazy val SbtPluginProject = PlaySbtProject("SBT-Plugin", "sbt-plugin")
     .settings(
@@ -217,6 +224,17 @@ object PlayBuild extends Build {
       libraryDependencies += "org.specs2" %% "specs2" % "1.12.3" % "test" exclude("javax.transaction", "jta"),
       libraryDependencies += "org.scala-sbt" % "sbt" % buildSbtVersion % "provided",
       publishTo := Some(publishingIvyRepository)
+    ).settings(scriptedSettings: _*)
+    .settings(
+      scriptedLaunchOpts <++= (baseDirectory in ThisBuild) { baseDir =>
+        Seq(
+          "-Dsbt.ivy.home=" + new File(baseDir.getParent, "repository"),
+          "-Dsbt.boot.directory=" + new File(baseDir, "sbt/boot"),
+          "-Dplay.home=" + System.getProperty("play.home"),
+          "-XX:MaxPermSize=384M",
+          "-Dperformance.log=" + new File(baseDir, "target/sbt-repcomile-performance.properties")
+       )
+      }
     ).dependsOn(SbtLinkProject, PlayExceptionsProject, RoutesCompilerProject, TemplatesCompilerProject, ConsoleProject)
 
   // todo this can be 2.10 and not cross-versioned or anything.  GO HOG WILD JAMES!
@@ -232,6 +250,10 @@ object PlayBuild extends Build {
   // This project is just for testing Play, not really a public artifact
   lazy val PlayIntegrationTestProject = PlayRuntimeProject("Play-Integration-Test", "play-integration-test")
     .dependsOn(PlayProject, PlayTestProject)
+
+  lazy val PlayCacheProject = PlayRuntimeProject("Play-Cache", "play-cache")
+    .settings(libraryDependencies := playCacheDeps)
+    .dependsOn(PlayProject)
 
   import RepositoryBuilder._
   lazy val RepositoryProject = Project(
@@ -258,7 +280,7 @@ object PlayBuild extends Build {
     DataCommonsProject,
     JsonProject,
     RoutesCompilerProject,
-    PlayProject,
+    PlayCacheProject,
     PlayJdbcProject,
     PlayJavaProject,
     PlayJavaJdbcProject,
@@ -276,10 +298,10 @@ object PlayBuild extends Build {
     "Root",
     file("."))
     .settings(playCommonSettings: _*)
+    .settings(ApiDocs.settings: _*)
     .settings(
       libraryDependencies := (runtime ++ jdbcDeps),
       cleanFiles ++= Seq(file("../dist"), file("../repository/local")),
-      generateAPIDocsTask,
       publish := {},
       generateDistTask
     )
