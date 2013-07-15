@@ -6,14 +6,15 @@ package play.templates {
   import java.io.File
   import scala.annotation.tailrec
   import io.Codec
+  import scala.reflect.internal.Flags
 
   object Hash {
 
-    def apply(bytes: Array[Byte]): String = {
+    def apply(bytes: Array[Byte], imports: String): String = {
       import java.security.MessageDigest
       val digest = MessageDigest.getInstance("SHA-1")
       digest.reset()
-      digest.update(bytes)
+      digest.update(bytes ++ imports.getBytes)
       digest.digest().map(0xFF & _).map { "%02x".format(_) }.foldLeft("") { _ + _ }
     }
 
@@ -106,10 +107,10 @@ package play.templates {
 
     def content = Path(file).string
 
-    def needRecompilation: Boolean = (!file.exists ||
+    def needRecompilation(imports: String): Boolean = (!file.exists ||
       // A generated source already exist but
       source.isDefined && ((source.get.lastModified > file.lastModified) || // the source has been modified
-        (meta("HASH") != Hash(Path(source.get).byteArray))) // or the hash don't match
+        (meta("HASH") != Hash(Path(source.get).byteArray, imports))) // or the hash don't match
     )
 
     def toSourcePosition(marker: Int): (Int, Int) = {
@@ -173,7 +174,7 @@ package play.templates {
     def compile(source: File, sourceDirectory: File, generatedDirectory: File, formatterType: String, additionalImports: String = "") = {
       val resultType = formatterType + ".Appendable"
       val (templateName, generatedSource) = generatedFile(source, sourceDirectory, generatedDirectory)
-      if (generatedSource.needRecompilation) {
+      if (generatedSource.needRecompilation(additionalImports)) {
         val generated = parseAndGenerateCode(templateName, Path(source).byteArray, source.getAbsolutePath, resultType, formatterType, additionalImports)
 
         Path(generatedSource.file).write(generated.toString)
@@ -186,14 +187,14 @@ package play.templates {
 
     def compileVirtual(content: String, source: File, sourceDirectory: File, resultType: String, formatterType: String, additionalImports: String = "") = {
       val (templateName, generatedSource) = generatedFileVirtual(source, sourceDirectory)
-      val generated = parseAndGenerateCode(templateName, content.getBytes(Codec.UTF8), source.getAbsolutePath, resultType, formatterType, additionalImports)
+      val generated = parseAndGenerateCode(templateName, content.getBytes(Codec.UTF8.charSet), source.getAbsolutePath, resultType, formatterType, additionalImports)
       generatedSource.setContent(generated)
       generatedSource
     }
 
     def parseAndGenerateCode(templateName: Array[String], content: Array[Byte], absolutePath: String, resultType: String, formatterType: String, additionalImports: String) = {
-      templateParser.parser(new CharSequenceReader(new String(content, Codec.UTF8))) match {
-        case templateParser.Success(parsed, rest) if rest.atEnd => {
+      templateParser.parser(new CharSequenceReader(new String(content, Codec.UTF8.charSet))) match {
+        case templateParser.Success(parsed: Template, rest) if rest.atEnd => {
           generateFinalTemplate(absolutePath,
             content,
             templateName.dropRight(1).mkString("."),
@@ -562,7 +563,7 @@ object """ :+ name :+ """ extends BaseScalaTemplate[""" :+ resultType :+ """,For
     def generateFinalTemplate(absolutePath: String, contents: Array[Byte], packageName: String, name: String, root: Template, resultType: String, formatterType: String, additionalImports: String): String = {
       val generated = generateCode(packageName, name, root, resultType, formatterType, additionalImports)
 
-      Source.finalSource(absolutePath, contents, generated)
+      Source.finalSource(absolutePath, contents, generated, Hash(contents, additionalImports))
     }
 
     object TemplateAsFunctionCompiler {
@@ -584,6 +585,7 @@ object """ :+ name :+ """ extends BaseScalaTemplate[""" :+ resultType :+ """,For
         type Tree = PresentationCompiler.global.Tree
         type DefDef = PresentationCompiler.global.DefDef
         type TypeDef = PresentationCompiler.global.TypeDef
+        type ValDef = PresentationCompiler.global.ValDef
 
         def filterType(t: String) = t match {
           case vararg if vararg.startsWith("_root_.scala.<repeated>") => vararg.replace("_root_.scala.<repeated>", "Array")
@@ -598,17 +600,24 @@ object """ :+ name :+ """ extends BaseScalaTemplate[""" :+ resultType :+ """,For
           }
         }
 
+        // For some reason they got rid of mods.isByNameParam
+        object ByNameParam {
+          def unapply(param: ValDef): Option[(String, String)] = if (param.mods.hasFlag(Flags.BYNAMEPARAM)) {
+            Some((param.name.toString, param.tpt.children(1).toString))
+          } else None
+        }
+
         val params = findSignature(
           PresentationCompiler.treeFrom("object FT { def signature" + signature + " }")).get.vparamss
 
         val functionType = "(" + params.map(group => "(" + group.map {
-          case a if a.mods.isByNameParam => " => " + a.tpt.children(1).toString
+          case ByNameParam(_, paramType) => " => " + paramType
           case a => filterType(a.tpt.toString)
         }.mkString(",") + ")").mkString(" => ") + " => " + returnType + ")"
 
         val renderCall = "def render%s: %s = apply%s".format(
           "(" + params.flatten.map {
-            case a if a.mods.isByNameParam => a.name.toString + ":" + a.tpt.children(1).toString
+            case ByNameParam(name, paramType) => name + ":" + paramType
             case a => a.name.toString + ":" + filterType(a.tpt.toString)
           }.mkString(",") + ")",
           returnType,
@@ -616,10 +625,10 @@ object """ :+ name :+ """ extends BaseScalaTemplate[""" :+ resultType :+ """,For
             p.name.toString + Option(p.tpt.toString).filter(_.startsWith("_root_.scala.<repeated>")).map(_ => ":_*").getOrElse("")
           }.mkString(",") + ")").mkString)
 
-        var templateType = "play.api.templates.Template%s[%s%s]".format(
+        val templateType = "play.api.templates.Template%s[%s%s]".format(
           params.flatten.size,
           params.flatten.map {
-            case a if a.mods.isByNameParam => a.tpt.children(1).toString
+            case ByNameParam(_, paramType) => paramType
             case a => filterType(a.tpt.toString)
           }.mkString(","),
           (if (params.flatten.isEmpty) "" else ",") + returnType)
@@ -659,7 +668,8 @@ object """ :+ name :+ """ extends BaseScalaTemplate[""" :+ resultType :+ """,For
             override def printMessage(pos: Position, msg: String) = ()
           })
 
-          new compiler.Run
+          // Everything must be done on the compiler thread, because the presentation compiler is a fussy piece of work.
+          compiler.ask(() => new compiler.Run)
 
           compiler
         }
@@ -720,7 +730,7 @@ object """ :+ name :+ """ extends BaseScalaTemplate[""" :+ resultType :+ """,For
 
     import scala.collection.mutable.ListBuffer
 
-    def finalSource(absolutePath: String, contents: Array[Byte], generatedTokens: Seq[Any]): String = {
+    def finalSource(absolutePath: String, contents: Array[Byte], generatedTokens: Seq[Any], hash: String): String = {
       val scalaCode = new StringBuilder
       val positions = ListBuffer.empty[(Int, Int)]
       val lines = ListBuffer.empty[(Int, Int)]
@@ -730,7 +740,7 @@ object """ :+ name :+ """ extends BaseScalaTemplate[""" :+ resultType :+ """,For
                     -- GENERATED --
                     DATE: """ + new java.util.Date + """
                     SOURCE: """ + absolutePath.replace(File.separator, "/") + """
-                    HASH: """ + Hash(contents) + """
+                    HASH: """ + hash + """
                     MATRIX: """ + positions.map { pos =>
         pos._1 + "->" + pos._2
       }.mkString("|") + """
@@ -740,11 +750,6 @@ object """ :+ name :+ """ extends BaseScalaTemplate[""" :+ resultType :+ """,For
                     -- GENERATED --
                 */
             """
-    }
-
-    @deprecated("use finalSource with 3 parameters instead", "Play 2.1")
-    def finalSource(template: File, generatedTokens: Seq[Any]): String = {
-      finalSource(template.getAbsolutePath, Path(template).byteArray, generatedTokens)
     }
 
     private def serialize(parts: Seq[Any], source: StringBuilder, positions: ListBuffer[(Int, Int)], lines: ListBuffer[(Int, Int)]) {

@@ -110,8 +110,8 @@ object Tasks {
     // Update versions
     def updatePlayVersion(file: File) {
       val contents = IO.read(file)
-      contents.replaceAll("PLAY_VERSION=.*", "PLAY_VERSION=" + version)
-      IO.write(file, contents)
+      val newContents = contents.replaceAll("PLAY_VERSION=.*", "PLAY_VERSION=\"" + version + "\"")
+      IO.write(file, newContents)
     }
     updatePlayVersion(dist / "framework" / "build")
     updatePlayVersion(dist / "framework" / "build.bat")
@@ -120,7 +120,7 @@ object Tasks {
     val playBootProperties = dist / "framework" / "sbt" / "play.boot.properties"
     val lines = IO.readLines(playBootProperties)
     val (preapp, postapp) = lines.span(_.trim != "[app]")
-    val (preversion, postversion) = postapp.span(_.trim.startsWith("version:"))
+    val (preversion, postversion) = postapp.span(!_.trim.startsWith("version:"))
     val versionLine = postversion.head.replaceAll("version: .*", "version: " + version)
     IO.writeLines(playBootProperties, (preapp ++ preversion :+ versionLine) ++ postversion.tail)
 
@@ -133,7 +133,8 @@ object Tasks {
 
   lazy val ScalaTemplates = {
     (classpath: Seq[Attributed[File]], templateEngine: File, sourceDirectory: File, generatedDir: File, streams: sbt.std.TaskStreams[sbt.Project.ScopedKey[_]]) =>
-      val classloader = new java.net.URLClassLoader(classpath.map(_.data.toURI.toURL).toArray, this.getClass.getClassLoader)
+      // Parent classloader must be null to ensure that we get the right scala on the classpath
+      val classloader = new java.net.URLClassLoader(classpath.map(_.data.toURI.toURL).toArray, null)
       val compiler = classloader.loadClass("play.templates.ScalaTemplateCompiler")
       val generatedSource = classloader.loadClass("play.templates.GeneratedSource")
 
