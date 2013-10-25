@@ -1,3 +1,6 @@
+/*
+ * Copyright (C) 2009-2013 Typesafe Inc. <http://www.typesafe.com>
+ */
 package controllers
 
 import play.api.mvc._
@@ -8,13 +11,15 @@ import play.api.cache.Cache
 import play.api.libs.json._
 import play.api.libs.json.Json._
 import play.api.libs.Jsonp
-import play.api.libs.concurrent.Promise
 
 import models._
 import models.Protocol._
 
 import play.cache.{Cache=>JCache}
 import play.api.i18n._
+import scala.concurrent.Future
+
+import play.api.libs.concurrent.Execution.Implicits.defaultContext
 
 object Application extends Controller {
 
@@ -126,8 +131,8 @@ object Application extends Controller {
     Ok(Jsonp(callback, json))
   }
 
-  def urldecode(fromPath: String, fromQueryString: String) = Action {
-    Ok("fromPath=%s fromQueryString=%s".format(fromPath, fromQueryString))
+  def urlcoding(dynamic: String, static: String, query: String) = Action {
+    Ok(s"dynamic=$dynamic static=$static query=$query")
   }
 
   def accept = Action { request =>
@@ -157,10 +162,8 @@ object Application extends Controller {
     Ok
   }
 
-  def asyncError = Action {
-    Async {
-      Promise.pure[Result](sys.error("Error"))
-    }
+  def asyncError = Action.async {
+    Future[SimpleResult](sys.error("Error"))
   }
 
   def route(parameter: String) = Action {
@@ -168,6 +171,10 @@ object Application extends Controller {
   }
 
   def routetest(parameter: String) = Action {
+    Ok("")
+  }
+  
+  def route2(parameter: String) = Action {
     Ok("")
   }
 

@@ -1,14 +1,16 @@
+/*
+ * Copyright (C) 2009-2013 Typesafe Inc. <http://www.typesafe.com>
+ */
 package play.api.libs.iteratee
 
-import play.api.libs.iteratee.internal.executeFuture
-import scala.concurrent.{ Await, ExecutionContext, Future }
-import scala.concurrent.duration.{ Duration, SECONDS }
+import scala.concurrent.ExecutionContext
+import org.specs2.mutable.SpecificationLike
 
 /**
  * Common functionality for iteratee tests.
  */
 trait ExecutionSpecification {
-  self: org.specs2.mutable.SpecificationLike =>
+  self: SpecificationLike =>
 
   def testExecution[A](f: TestExecutionContext => A): A = {
     val ec = TestExecutionContext()

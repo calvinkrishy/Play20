@@ -1,25 +1,69 @@
+/*
+ * Copyright (C) 2009-2013 Typesafe Inc. <http://www.typesafe.com>
+ */
 package play.it.http.assets
 
 import controllers.Assets
-import org.specs2.mutable._
 import play.api.test._
-import play.api.test.Helpers._
 import org.apache.commons.io.IOUtils
 import java.util.zip.GZIPInputStream
 import java.io.ByteArrayInputStream
 import play.api.{Configuration, Mode}
 import play.api.mvc.Handler
-import play.utils.Threads
-import play.core.DevSettings
+import play.utils.{UriEncoding, Threads}
 
-object AssetsSpec extends Specification {
+object AssetsSpec extends PlaySpecification {
   "Assets controller" should {
+
+    val defaultCacheControl = Some("max-age=3600")
+
+    implicit val port: Port = testServerPort
+
+    def withServer[T](block: => T): T = {
+      val routes: PartialFunction[(String, String), Handler] = {
+        case (_, path) => Assets.at("/testassets", path.substring(1))
+      }
+      running(TestServer(port, new FakeApplication(withRoutes = routes) {
+        // setting prod mode ensures caching headers get set, gzip is turned on, etc
+        override val mode = Mode.Prod
+        // but we don't want to load config in prod mode
+        override lazy val initialConfiguration = Threads.withContextClassLoader(classloader) {
+          Configuration(Configuration.loadDev(path, Map.empty))
+        }
+      }))(block)
+    }
 
     "serve an asset" in withServer {
       val result = await(wsUrl("/bar.txt").get())
 
       result.status must_== OK
       result.body must_== "This is a test asset."
+      result.header(CONTENT_TYPE) must beSome.which(_.startsWith("text/plain"))
+      result.header(ETAG) must beSome
+      result.header(LAST_MODIFIED) must beSome
+      result.header(VARY) must beNone
+      result.header(CONTENT_ENCODING) must beNone
+      result.header(CACHE_CONTROL) must_== defaultCacheControl
+    }
+
+    "serve an asset in a subdirectory" in withServer {
+      val result = await(wsUrl("/subdir/baz.txt").get())
+
+      result.status must_== OK
+      result.body must_== "Content of baz.txt."
+      result.header(CONTENT_TYPE) must beSome.which(_.startsWith("text/plain"))
+      result.header(ETAG) must beSome
+      result.header(LAST_MODIFIED) must beSome
+      result.header(VARY) must beNone
+      result.header(CONTENT_ENCODING) must beNone
+      result.header(CACHE_CONTROL) must_== defaultCacheControl
+    }
+
+    "serve an asset with spaces in the name" in withServer {
+      val result = await(wsUrl("/foo%20bar.txt").get())
+
+      result.status must_== OK
+      result.body must_== "This is a test asset with spaces."
       result.header(CONTENT_TYPE) must beSome.which(_.startsWith("text/plain"))
       result.header(ETAG) must beSome
       result.header(LAST_MODIFIED) must beSome
@@ -47,6 +91,7 @@ object AssetsSpec extends Specification {
       IOUtils.toString(is) must_== "This is a test gzipped asset.\n"
       // release deflate resources
       is.close()
+      success
     }
 
     "return not modified when etag matches" in withServer {
@@ -132,23 +177,12 @@ object AssetsSpec extends Specification {
       result.body must beEmpty
     }
 
-  }
+    "return 404 for files that don't exist" in withServer {
+      val result = await(wsUrl("/nosuchfile.txt").get())
 
-  val defaultCacheControl = Some("max-age=3600")
-
-  implicit val port: Port = Helpers.testServerPort
-
-  def withServer[T](block: => T): T = {
-    val routes: PartialFunction[(String, String), Handler] = {
-      case (_, path) => Assets.at("/testassets", path)
+      result.status must_== NOT_FOUND
+      result.body must beEmpty
     }
-    running(new TestServer(port, new FakeApplication(withRoutes = routes) {
-      // setting prod mode ensures caching headers get set, gzip is turned on, etc
-      override val mode = Mode.Prod
-      // but we don't want to load config in prod mode
-      override lazy val initialConfiguration = Threads.withContextClassLoader(classloader) {
-        Configuration(Configuration.loadDev(path, Map.empty))
-      }
-    }))(block)
+
   }
 }

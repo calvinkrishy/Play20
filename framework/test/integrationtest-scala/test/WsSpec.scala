@@ -1,3 +1,6 @@
+/*
+ * Copyright (C) 2009-2013 Typesafe Inc. <http://www.typesafe.com>
+ */
 package test
 
 import org.specs2.mutable.Specification
@@ -46,6 +49,6 @@ object WsSpec extends Specification {
   }
 
   def slave(toReturn: ToReturn)(implicit port: Port): Response =
-    await(wsCall(controllers.routes.TestController.slave()).post(Json.toJson(toReturn)))
+    Helpers.await(wsCall(controllers.routes.TestController.slave()).post(Json.toJson(toReturn)))
 
 }

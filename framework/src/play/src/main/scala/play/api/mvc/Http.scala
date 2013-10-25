@@ -1,13 +1,18 @@
+/*
+ * Copyright (C) 2009-2013 Typesafe Inc. <http://www.typesafe.com>
+ */
 package play.api.mvc {
 
   import play.api._
-  import play.api.http.{ MediaRange, HeaderNames }
+  import play.api.http.{ MediaType, MediaRange, HeaderNames }
   import play.api.i18n.Lang
   import play.api.libs.iteratee._
   import play.api.libs.Crypto
 
   import scala.annotation._
   import scala.util.control.NonFatal
+  import scala.util.Try
+  import java.net.{ URLDecoder, URLEncoder }
 
   /**
    * The HTTP request header. Note that it doesn’t contain the request body yet.
@@ -64,6 +69,15 @@ package play.api.mvc {
      */
     def remoteAddress: String
 
+    /**
+     * Is the client using SSL?
+     *
+     * If the <code>X-Forwarded-Proto</code> header is present, then this method will return true
+     * if the value in that header is "https", if either the local address is 127.0.0.1, or if
+     * <code>trustxforwarded</code> is configured to be true in the application configuration file.
+     */
+    def secure: Boolean
+
     // -- Computed
 
     /**
@@ -105,10 +119,7 @@ package play.api.mvc {
      * @return The media types list of the request’s Accept header, sorted by preference (preferred first).
      */
     lazy val acceptedTypes: Seq[play.api.http.MediaRange] = {
-      val mediaTypes = acceptHeader(HeaderNames.ACCEPT).collect {
-        case (q, MediaRange.parse(mediaRange)) => (q, mediaRange)
-      }
-      mediaTypes.sorted.map(_._2).reverse
+      headers.get(HeaderNames.ACCEPT).toSeq.flatMap(MediaRange.parse.apply)
     }
 
     /**
@@ -156,14 +167,23 @@ package play.api.mvc {
     lazy val rawQueryString: String = uri.split('?').drop(1).mkString("?")
 
     /**
-     * Returns the value of the Content-Type header (without the ;charset= part if exists)
+     * The media type of this request.  Same as contentType, except returns a fully parsed media type with parameters.
      */
-    lazy val contentType: Option[String] = headers.get(play.api.http.HeaderNames.CONTENT_TYPE).flatMap(_.split(';').headOption).map(_.toLowerCase)
+    lazy val mediaType: Option[MediaType] = headers.get(HeaderNames.CONTENT_TYPE).flatMap(MediaType.parse.apply)
+
+    /**
+     * Returns the value of the Content-Type header (without the parameters (eg charset))
+     */
+    lazy val contentType: Option[String] = mediaType.map(mt => mt.mediaType + "/" + mt.mediaSubType)
 
     /**
      * Returns the charset of the request for text-based body
      */
-    lazy val charset: Option[String] = headers.get(play.api.http.HeaderNames.CONTENT_TYPE).flatMap(_.split(';').tail.headOption).map(_.toLowerCase.trim).filter(_.startsWith("charset=")).flatMap(_.split('=').tail.headOption.map(_.replaceAll("""^"|"$""", "")))
+    lazy val charset: Option[String] = for {
+      mt <- mediaType
+      param <- mt.parameters.find(_._1.equalsIgnoreCase("charset"))
+      charset <- param._2
+    } yield charset
 
     /**
      * Copy the request.
@@ -177,8 +197,9 @@ package play.api.mvc {
       version: String = this.version,
       queryString: Map[String, Seq[String]] = this.queryString,
       headers: Headers = this.headers,
-      remoteAddress: String = this.remoteAddress): RequestHeader = {
-      val (_id, _tags, _uri, _path, _method, _version, _queryString, _headers, _remoteAddress) = (id, tags, uri, path, method, version, queryString, headers, remoteAddress)
+      remoteAddress: String = this.remoteAddress,
+      secure: Boolean = this.secure): RequestHeader = {
+      val (_id, _tags, _uri, _path, _method, _version, _queryString, _headers, _remoteAddress, _secure) = (id, tags, uri, path, method, version, queryString, headers, remoteAddress, secure)
       new RequestHeader {
         val id = _id
         val tags = _tags
@@ -189,6 +210,7 @@ package play.api.mvc {
         val queryString = _queryString
         val headers = _headers
         val remoteAddress = _remoteAddress
+        val secure = _secure
       }
     }
 
@@ -230,6 +252,7 @@ package play.api.mvc {
       def queryString = self.queryString
       def headers = self.headers
       def remoteAddress = self.remoteAddress
+      def secure = self.secure
       lazy val body = f(self.body)
     }
 
@@ -247,6 +270,7 @@ package play.api.mvc {
       def queryString = rh.queryString
       def headers = rh.headers
       lazy val remoteAddress = rh.remoteAddress
+      lazy val secure = rh.secure
       def username = None
       val body = a
     }
@@ -266,6 +290,7 @@ package play.api.mvc {
     def method = request.method
     def version = request.version
     def remoteAddress = request.remoteAddress
+    def secure = request.secure
   }
 
   /**
@@ -402,7 +427,9 @@ package play.api.mvc {
      * Encodes the data as a `String`.
      */
     def encode(data: Map[String, String]): String = {
-      val encoded = java.net.URLEncoder.encode(data.filterNot(_._1.contains(":")).map(d => d._1 + ":" + d._2).mkString("\u0000"), "UTF-8")
+      val encoded = data.map {
+        case (k, v) => URLEncoder.encode(k, "UTF-8") + "=" + URLEncoder.encode(v, "UTF-8")
+      }.mkString("&")
       if (isSigned)
         Crypto.sign(encoded) + "-" + encoded
       else
@@ -414,7 +441,13 @@ package play.api.mvc {
      */
     def decode(data: String): Map[String, String] = {
 
-      def urldecode(data: String) = java.net.URLDecoder.decode(data, "UTF-8").split("\u0000").map(_.split(":")).map(p => p(0) -> p.drop(1).mkString(":")).toMap
+      def urldecode(data: String) = {
+        data
+          .split("&")
+          .map(_.split("=", 2))
+          .map(p => URLDecoder.decode(p(0), "UTF-8") -> URLDecoder.decode(p(1), "UTF-8"))
+          .toMap
+      }
 
       // Do not change this unless you understand the security issues behind timing attacks.
       // This method intentionally runs in constant time if the two strings have the same length.
@@ -433,7 +466,7 @@ package play.api.mvc {
 
       try {
         if (isSigned) {
-          val splitted = data.split("-")
+          val splitted = data.split("-", 2)
           val message = splitted.tail.mkString("-")
           if (safeEquals(splitted(0), Crypto.sign(message)))
             urldecode(message)
@@ -509,7 +542,10 @@ package play.api.mvc {
      * @param kv the key-value pair to add
      * @return the modified session
      */
-    def +(kv: (String, String)) = copy(data + kv)
+    def +(kv: (String, String)) = {
+      require(kv._2 != null, "Cookie values cannot be null")
+      copy(data + kv)
+    }
 
     /**
      * Removes any value from the session.
@@ -577,7 +613,10 @@ package play.api.mvc {
      * @param kv the key-value pair to add
      * @return the modified flash scope
      */
-    def +(kv: (String, String)) = copy(data + kv)
+    def +(kv: (String, String)) = {
+      require(kv._2 != null, "Cookie values cannot be null")
+      copy(data + kv)
+    }
 
     /**
      * Removes a value from the flash scope.
@@ -605,7 +644,7 @@ package play.api.mvc {
   object Flash extends CookieBaker[Flash] {
 
     val COOKIE_NAME = Play.maybeApplication.flatMap(_.configuration.getString("flash.cookieName")).getOrElse("PLAY_FLASH")
-    override val path = Play.maybeApplication.flatMap(_.configuration.getString("application.context")).getOrElse("/")
+    override def path = Play.maybeApplication.flatMap(_.configuration.getString("application.context")).getOrElse("/")
 
     val emptyCookie = new Flash
 
@@ -643,7 +682,7 @@ package play.api.mvc {
   /**
    * The HTTP cookies set.
    */
-  trait Cookies {
+  trait Cookies extends Traversable[Cookie] {
 
     /**
      * Optionally returns the cookie associated with a key.
@@ -677,6 +716,9 @@ package play.api.mvc {
       def get(name: String) = cookies.get(name)
       override def toString = cookies.toString
 
+      def foreach[U](f: (Cookie) => U) {
+        cookies.values.foreach(f)
+      }
     }
 
     /**
@@ -708,10 +750,17 @@ package play.api.mvc {
      * @param cookieHeader the Set-Cookie header value
      * @return decoded cookies
      */
+
+    private lazy val decoder = new CookieDecoder()
     def decode(cookieHeader: String): Seq[Cookie] = {
-      new CookieDecoder().decode(cookieHeader).asScala.map { c =>
-        Cookie(c.getName, c.getValue, if (c.getMaxAge == Integer.MIN_VALUE) None else Some(c.getMaxAge), Option(c.getPath).getOrElse("/"), Option(c.getDomain), c.isSecure, c.isHttpOnly)
-      }.toSeq
+      Try {
+        decoder.decode(cookieHeader).asScala.map { c =>
+          Cookie(c.getName, c.getValue, if (c.getMaxAge == Integer.MIN_VALUE) None else Some(c.getMaxAge), Option(c.getPath).getOrElse("/"), Option(c.getDomain), c.isSecure, c.isHttpOnly)
+        }.toSeq
+      }.getOrElse {
+        Play.logger.debug(s"Couldn't decode the Cookie header containing: $cookieHeader")
+        Nil
+      }
     }
 
     /**

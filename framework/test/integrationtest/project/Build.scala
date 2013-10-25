@@ -1,5 +1,7 @@
+/*
+ * Copyright (C) 2009-2013 Typesafe Inc. <http://www.typesafe.com>
+ */
 import sbt._
-import Keys._
 import play.Project._
 
 object ApplicationBuild extends Build {
@@ -13,10 +15,9 @@ object ApplicationBuild extends Build {
     anorm,
     cache)
 
-  val distTestSettings = DistTest.makeSettings(appName, appVersion)
-
   val main = play.Project(appName, appVersion, appDependencies).settings(
-                  requireJs += "main.js"
-             ).settings(distTestSettings: _*)
+                  requireJs += "main.js",
+                  play.Project.emojiLogs
+             )
 }
             

@@ -1,14 +1,15 @@
+/*
+ * Copyright (C) 2009-2013 Typesafe Inc. <http://www.typesafe.com>
+ */
 package play.it.http
 
-import play.api.test.Helpers._
+import play.api.test._
 import play.api.libs.ws.Response
 import play.api.test.{FakeApplication, TestServer}
 import play.mvc.Results
 import play.mvc.Results.Chunks
 
-import org.specs2.mutable.Specification
-
-object JavaResultsHandlingSpec extends Specification {
+object JavaResultsHandlingSpec extends PlaySpecification {
 
   "java body handling" should {
     def makeRequest[T](controller: MockController)(block: Response => T) = {

@@ -1,3 +1,6 @@
+/*
+ * Copyright (C) 2009-2013 Typesafe Inc. <http://www.typesafe.com>
+ */
 package play.core.j
 
 import akka.actor.ActorSystem
@@ -48,6 +51,7 @@ object OrderedExecutionContextSpec extends Specification {
       }
 
       actorSystem.shutdown()
+      success
     }
 
   }

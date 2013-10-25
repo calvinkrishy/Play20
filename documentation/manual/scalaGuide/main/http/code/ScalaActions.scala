@@ -1,3 +1,6 @@
+/*
+ * Copyright (C) 2009-2013 Typesafe Inc. <http://www.typesafe.com>
+ */
 package scalaguide.http.scalaactions {
 
 import play.api.mvc._
@@ -7,6 +10,7 @@ import org.specs2.mutable.Specification
 import play.api.libs.json._
 import play.api.libs.iteratee.Enumerator
 import scala.concurrent.Future
+import org.specs2.execute.AsResult
 
 object ScalaActionsSpec extends Specification with Controller {
 
@@ -147,11 +151,11 @@ object ScalaActionsSpec extends Specification with Controller {
 
   }
 
-  def testAction[A](action: Action[A], expectedResponse: Int = OK, request: Request[A] = FakeRequest()) {
-    assertAction(action, expectedResponse, request) { result => }
+  def testAction[A](action: Action[A], expectedResponse: Int = OK, request: Request[A] = FakeRequest()) = {
+    assertAction(action, expectedResponse, request) { result => success }
   }
 
-  def assertAction[A](action: Action[A], expectedResponse: Int = OK, request: Request[A] = FakeRequest())(assertions: Future[SimpleResult] => Unit) {
+  def assertAction[A, T: AsResult](action: Action[A], expectedResponse: Int = OK, request: Request[A] = FakeRequest())(assertions: Future[SimpleResult] => T) = {
     running(FakeApplication()) {
       val result = action(request)
       status(result) must_== expectedResponse

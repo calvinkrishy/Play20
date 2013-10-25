@@ -1,3 +1,6 @@
+/*
+ * Copyright (C) 2009-2013 Typesafe Inc. <http://www.typesafe.com>
+ */
 package scalaguide.http.scalacontentnegotiation {
 
   import play.api.mvc._
@@ -8,6 +11,7 @@ package scalaguide.http.scalacontentnegotiation {
   import org.junit.runner.RunWith
   import org.specs2.runner.JUnitRunner
   import scala.concurrent.Future
+  import org.specs2.execute.AsResult
 
   @RunWith(classOf[JUnitRunner])
   class ScalaContentNegotiation extends Specification with Controller {
@@ -51,7 +55,7 @@ package scalaguide.http.scalacontentnegotiation {
 
     }
 
-    def assertAction[A](action: Action[A], expectedResponse: Int = OK, request: Request[A] = FakeRequest())(assertions: Future[SimpleResult] => Unit) {
+    def assertAction[A, T: AsResult](action: Action[A], expectedResponse: Int = OK, request: Request[A] = FakeRequest())(assertions: Future[SimpleResult] => T) = {
       running(FakeApplication()) {
         val result = action(request)
         status(result) must_== expectedResponse

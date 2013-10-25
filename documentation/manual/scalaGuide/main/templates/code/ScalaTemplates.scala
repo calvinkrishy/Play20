@@ -1,3 +1,6 @@
+/*
+ * Copyright (C) 2009-2013 Typesafe Inc. <http://www.typesafe.com>
+ */
 package scalaguide.templates
 
 import org.specs2.mutable.Specification
@@ -131,9 +134,6 @@ object ScalaTemplatesSpec extends Specification {
       "allow intering raw HTML" in {
         body must contain("<foo>")
       }
-    }
-
-    {
     }
   }
 }

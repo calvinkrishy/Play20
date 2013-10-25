@@ -1,3 +1,6 @@
+/*
+ * Copyright (C) 2009-2013 Typesafe Inc. <http://www.typesafe.com>
+ */
 package play.db.ebean;
 
 import play.*;
@@ -102,7 +105,8 @@ public class EbeanPlugin extends Plugin {
      * Helper method that generates the required evolution to properly run Ebean.
      */
     public static String generateEvolutionScript(EbeanServer server, ServerConfig config) {
-        DdlGenerator ddl = new DdlGenerator((SpiEbeanServer)server, config.getDatabasePlatform(), config);
+        DdlGenerator ddl = new DdlGenerator();
+        ddl.setup((SpiEbeanServer)server, config.getDatabasePlatform(), config);
         String ups = ddl.generateCreateDdl();
         String downs = ddl.generateDropDdl();
         

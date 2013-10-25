@@ -3,11 +3,9 @@ package models;
 import play.*;
 import play.mvc.*;
 import play.libs.*;
-import play.libs.F.*;
 
 import scala.concurrent.duration.*;
 import akka.actor.*;
-import akka.dispatch.*;
 
 import com.fasterxml.jackson.databind.JsonNode;
 
@@ -37,7 +35,8 @@ public class Robot {
             Duration.create(30, SECONDS),
             chatRoom,
             new ChatRoom.Talk("Robot", "I'm still alive"),
-            Akka.system().dispatcher()
+            Akka.system().dispatcher(),
+            /** sender **/ null
         );
         
     }

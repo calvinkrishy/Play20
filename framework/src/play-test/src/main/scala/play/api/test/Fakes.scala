@@ -1,3 +1,6 @@
+/*
+ * Copyright (C) 2009-2013 Typesafe Inc. <http://www.typesafe.com>
+ */
 package play.api.test
 
 import play.api.mvc._
@@ -8,6 +11,7 @@ import scala.concurrent.Future
 import xml.NodeSeq
 import play.core.Router
 import scala.runtime.AbstractPartialFunction
+import play.api.libs.Files.TemporaryFile
 
 /**
  * Fake HTTP headers implementation.
@@ -26,7 +30,7 @@ case class FakeHeaders(override val data: Seq[(String, Seq[String])] = Seq.empty
  * @param body The request body.
  * @param remoteAddress The client IP.
  */
-case class FakeRequest[A](method: String, uri: String, headers: FakeHeaders, body: A, remoteAddress: String = "127.0.0.1", version: String = "HTTP/1.1", id: Long = 666, tags: Map[String, String] = Map.empty[String, String]) extends Request[A] {
+case class FakeRequest[A](method: String, uri: String, headers: FakeHeaders, body: A, remoteAddress: String = "127.0.0.1", version: String = "HTTP/1.1", id: Long = 666, tags: Map[String, String] = Map.empty[String, String], secure: Boolean = false) extends Request[A] {
 
   private def _copy[B](
     id: Long = this.id,
@@ -37,9 +41,10 @@ case class FakeRequest[A](method: String, uri: String, headers: FakeHeaders, bod
     version: String = this.version,
     headers: FakeHeaders = this.headers,
     remoteAddress: String = this.remoteAddress,
+    secure: Boolean = this.secure,
     body: B = this.body): FakeRequest[B] = {
     new FakeRequest[B](
-      method, uri, headers, body, remoteAddress, version, id, tags
+      method, uri, headers, body, remoteAddress, version, id, tags, secure
     )
   }
 
@@ -146,6 +151,13 @@ case class FakeRequest[A](method: String, uri: String, headers: FakeHeaders, bod
    */
   def withRawBody(bytes: Array[Byte]): FakeRequest[AnyContentAsRaw] = {
     _copy(body = AnyContentAsRaw(RawBuffer(bytes.length, bytes)))
+  }
+
+  /**
+   * Adds a multipart form data body to the request
+   */
+  def withMultipartFormDataBody(form: MultipartFormData[TemporaryFile]) = {
+    _copy(body = AnyContentAsMultipartFormData(form))
   }
 
   /**

@@ -1,3 +1,6 @@
+/*
+ * Copyright (C) 2009-2013 Typesafe Inc. <http://www.typesafe.com>
+ */
 package play.mvc;
 
 import java.io.*;
@@ -97,7 +100,7 @@ public class Http {
         }
 
         /**
-         * The original Play request Header used to create this context. 
+         * The original Play request Header used to create this context.
          * For internal usage only.
          */
         public play.api.mvc.RequestHeader _requestHeader() {
@@ -126,17 +129,33 @@ public class Http {
          * @return true if the requested lang was supported by the application, otherwise false.
          */
         public boolean changeLang(String code) {
-            Lang lang = Lang.forCode(code);
+            return changeLang(Lang.forCode(code));
+        }
+
+        /**
+         * Change durably the lang for the current user.
+         * @param lang New Lang object to use.
+         * @return true if the requested lang was supported by the application, otherwise false.
+         */
+        public boolean changeLang(Lang lang) {
             if (Lang.availables().contains(lang)) {
                 this.lang = lang;
-                response.setCookie(Play.langCookieName(), code);
+                response.setCookie(Play.langCookieName(), lang.code());
                 return true;
             } else {
                 return false;
             }
         }
 
-        /** 
+        /**
+         * Clear the lang for the current user.
+         */
+        public void clearLang() {
+            this.lang = null;
+            response.discardCookie(Play.langCookieName());
+        }
+
+        /**
          * Free space to store your request specific data
          */
         public Map<String, Object> args;
@@ -220,6 +239,15 @@ public class Http {
          * application configuration file.
          */
         public abstract String remoteAddress();
+
+        /**
+         * Is the client using SSL?
+         *
+         * If the <code>X-Forwarded-Proto</code> header is present, then this method will return true
+         * if the value in that header is "https", if either the local address is 127.0.0.1, or if
+         * <code>trustxforwarded</code> is configured to be true in the application configuration file.
+         */
+        public abstract boolean secure();
 
         /**
          * The request host.
@@ -372,7 +400,7 @@ public class Http {
 
         /**
          * A file part.
-         */ 
+         */
         public static class FilePart {
 
             final String key;
@@ -396,7 +424,7 @@ public class Http {
 
             /**
              * The file name.
-             */ 
+             */
             public String getFilename() {
                 return filename;
             }
@@ -516,9 +544,12 @@ public class Http {
 
         /**
          * Adds a new header to the response.
-         */ 
-        public void setHeader(String name, String Stringue) {
-            this.headers.put(name, Stringue);
+         *
+         * @param name The name of the header. Must not be null.
+         * @param value The value of the header. Must not be null.
+         */
+        public void setHeader(String name, String value) {
+            this.headers.put(name, value);
         }
 
         /**
@@ -530,6 +561,8 @@ public class Http {
 
         /**
          * Sets the content-type of the response.
+         *
+         * @param contentType The content type.  Must not be null.
          */
         public void setContentType(String contentType) {
             setHeader(CONTENT_TYPE, contentType);
@@ -541,8 +574,8 @@ public class Http {
          * <pre>
          * response().setCookie("theme", "blue");
          * </pre>
-         * @param name Cookie name
-         * @param value Cookie value
+         * @param name Cookie name.  Must not be null.
+         * @param value Cookie value.
          */
         public void setCookie(String name, String value) {
             setCookie(name, value, null);
@@ -550,9 +583,9 @@ public class Http {
 
         /**
          * Set a new cookie with path “/”
-         * @param name Cookie name
-         * @param value Cookie value
-         * @param maxAge Cookie duration (null for a transient cookie and 0 or less for a cookie that expires now)
+         * @param name Cookie name.  Must not be null.
+         * @param value Cookie value.
+         * @param maxAge Cookie duration (null for a transient cookie and 0 or less for a cookie that expires now).
          */
         public void setCookie(String name, String value, Integer maxAge) {
             setCookie(name, value, maxAge, "/");
@@ -560,7 +593,7 @@ public class Http {
 
         /**
          * Set a new cookie
-         * @param name Cookie name
+         * @param name Cookie name.  Must not be null.
          * @param value Cookie value
          * @param maxAge Cookie duration (null for a transient cookie and 0 or less for a cookie that expires now)
          * @param path Cookie path
@@ -571,7 +604,7 @@ public class Http {
 
         /**
          * Set a new cookie
-         * @param name Cookie name
+         * @param name Cookie name.  Must not be null.
          * @param value Cookie value
          * @param maxAge Cookie duration (null for a transient cookie and 0 or less for a cookie that expires now)
          * @param path Cookie path
@@ -583,7 +616,7 @@ public class Http {
 
         /**
          * Set a new cookie
-         * @param name Cookie name
+         * @param name Cookie name.  Must not be null.
          * @param value Cookie value
          * @param maxAge Cookie duration (null for a transient cookie and 0 or less for a cookie that expires now)
          * @param path Cookie path
@@ -605,7 +638,7 @@ public class Http {
          * This only discards cookies on the default path ("/") with no domain and that didn't have secure set.  To
          * discard other cookies, use the discardCookie method.
          *
-         * @param names Names of the cookies to discard
+         * @param names Names of the cookies to discard.  Must not be null.
          * @deprecated Use the discardCookie methods instead
          */
         @Deprecated
@@ -618,7 +651,7 @@ public class Http {
         /**
          * Discard a cookie on the default path ("/") with no domain and that's not secure
          *
-         * @param name The name of the cookie to discard
+         * @param name The name of the cookie to discard.  Must not be null.
          */
         public void discardCookie(String name) {
             discardCookie(name, "/", null, false);
@@ -627,7 +660,7 @@ public class Http {
         /**
          * Discard a cookie on the give path with no domain and not that's secure
          *
-         * @param name The name of the cookie to discard
+         * @param name The name of the cookie to discard.  Must not be null.
          * @param path The path of the cookie te discard, may be null
          */
         public void discardCookie(String name, String path) {
@@ -637,7 +670,7 @@ public class Http {
         /**
          * Discard a cookie on the given path and domain that's not secure
          *
-         * @param name The name of the cookie to discard
+         * @param name The name of the cookie to discard.  Must not be null.
          * @param path The path of the cookie te discard, may be null
          * @param domain The domain of the cookie to discard, may be null
          */
@@ -648,7 +681,7 @@ public class Http {
         /**
          * Discard a cookie in this result
          *
-         * @param name The name of the cookie to discard
+         * @param name The name of the cookie to discard.  Must not be null.
          * @param path The path of the cookie te discard, may be null
          * @param domain The domain of the cookie to discard, may be null
          * @param secure Whether the cookie to discard is secure
@@ -844,7 +877,7 @@ public class Http {
     /**
      * HTTP Cookies set
      */
-    public interface Cookies {
+    public interface Cookies extends Iterable<Cookie> {
 
         /**
          * @param name Name of the cookie to retrieve
@@ -919,7 +952,7 @@ public class Http {
         String ACCESS_CONTROL_ALLOW_HEADERS = "Access-Control-Allow-Headers";
         String ORIGIN = "Origin";
         String ACCESS_CONTROL_REQUEST_METHOD = "Access-Control-Request-Method";
-        String ACCESS_CONTROL_REQUEST_HEADERS = "Access-Control-Request-Headers";        
+        String ACCESS_CONTROL_REQUEST_HEADERS = "Access-Control-Request-Headers";
     }
 
     /**
@@ -969,4 +1002,52 @@ public class Http {
         int HTTP_VERSION_NOT_SUPPORTED = 505;
     }
 
+    /** Common HTTP MIME types */
+    public static interface MimeTypes {
+
+        /**
+         * Content-Type of text.
+         */
+        String TEXT = "text/plain";
+
+        /**
+        * Content-Type of html.
+        */
+        String HTML = "text/html";
+
+        /**
+        * Content-Type of json.
+        */
+        String JSON = "application/json";
+
+        /**
+        * Content-Type of xml.
+        */
+        String XML = "application/xml";
+
+        /**
+        * Content-Type of css.
+        */
+        String CSS = "text/css";
+
+        /**
+        * Content-Type of javascript.
+        */
+        String JAVASCRIPT = "text/javascript";
+
+        /**
+        * Content-Type of form-urlencoded.
+        */
+        String FORM = "application/x-www-form-urlencoded";
+
+        /**
+        * Content-Type of server sent events.
+        */
+        String EVENT_STREAM = "text/event-stream";
+
+        /**
+        * Content-Type of binary data.
+        */
+        String BINARY = "application/octet-stream";
+    }
 }

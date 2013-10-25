@@ -1,3 +1,6 @@
+/*
+ * Copyright (C) 2009-2013 Typesafe Inc. <http://www.typesafe.com>
+ */
 package play.router
 
 import scala.util.parsing.input._
@@ -19,7 +22,9 @@ object RoutesCompiler {
     "super", "then", "this", "throw",
     "trait", "try", "true", "type",
     "val", "var", "while", "with",
-    "yield"
+    "yield",
+    // Not scala keywords, but are used in the router
+    "queryString"
   )
 
   case class HttpVerb(value: String) {
@@ -249,12 +254,12 @@ object RoutesCompiler {
   case class GeneratedSource(file: File) {
 
     val lines = if (file.exists) Path(file).string.split('\n').toList else Nil
-    val source = lines.headOption.filter(_.startsWith("// @SOURCE:")).map(m => Path.fromString(m.trim.drop(11)))
+    val source = lines.find(_.startsWith("// @SOURCE:")).map(m => Path.fromString(m.trim.drop(11)))
 
     def isGenerated: Boolean = source.isDefined
 
     def sync(): Boolean = {
-      if (!source.get.exists) file.delete() else false
+      if (!source.exists(_.exists)) file.delete() else false
     }
 
     def needsRecompilation(imports: Seq[String]): Boolean = {
@@ -470,7 +475,6 @@ object RoutesCompiler {
         |import play.core._
         |import play.core.Router._
         |import play.core.j._
-        |import java.net.URLEncoder
         |
         |import play.api.mvc._
         |%s
@@ -839,7 +843,7 @@ object RoutesCompiler {
                         case DynamicPart(name, _, encode) => {
                           route.call.parameters.getOrElse(Nil).find(_.name == name).map { param =>
                             if (encode && encodeable(param.typeName))
-                              """implicitly[PathBindable[""" + param.typeName + """]].unbind("""" + param.name + """", URLEncoder.encode(""" + safeKeyword(localNames.get(param.name).getOrElse(param.name)) + """, "utf-8"))"""
+                              """implicitly[PathBindable[""" + param.typeName + """]].unbind("""" + param.name + """", dynamicString(""" + safeKeyword(localNames.get(param.name).getOrElse(param.name)) + """))"""
                             else
                               """implicitly[PathBindable[""" + param.typeName + """]].unbind("""" + param.name + """", """ + safeKeyword(localNames.get(param.name).getOrElse(param.name)) + """)"""
                           }.getOrElse {

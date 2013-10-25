@@ -1,3 +1,6 @@
+/*
+ * Copyright (C) 2009-2013 Typesafe Inc. <http://www.typesafe.com>
+ */
 package play.db.ebean;
 
 import java.util.*;
@@ -679,13 +682,6 @@ public class Model {
         
         public Query<T> setUseIndex(UseIndex useIndex) {
             return query().setUseIndex(useIndex);
-        }
-
-        /**
-         * Sets whether to use 'vanilla mode', in which the returned beans and collections will be plain classes rather than Ebean-generated dynamic subclasses etc.
-         */
-        public Query<T> setVanillaMode(boolean vanillaMode) {
-            return query().setVanillaMode(vanillaMode);
         }
 
         /**
