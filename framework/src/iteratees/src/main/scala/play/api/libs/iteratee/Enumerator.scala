@@ -5,7 +5,7 @@ package play.api.libs.iteratee
 
 import play.api.libs.iteratee.Execution.Implicits.{ defaultExecutionContext => dec }
 import play.api.libs.iteratee.internal.{ eagerFuture, executeFuture }
-import scala.concurrent.{ ExecutionContext, Future, Promise }
+import scala.concurrent.{ ExecutionContext, Future, Promise, blocking }
 import scala.util.{ Try, Success, Failure }
 import scala.language.reflectiveCalls
 
@@ -98,7 +98,12 @@ trait Enumerator[E] {
   }
 
   /**
-   * Creates an Enumerator which calls the given callback when its final input has been consumed.
+   * Creates an Enumerator which calls the given callback when a passed in iteratee has either entered the done state,
+   * or if an error is returned.
+   *
+   * This is equivalent to a finally call, and can be used to clean up any resources used by this enumerator.  Note that
+   * if the callback throws an exception, then the future returned by the enumerator will be completed with that
+   * exception.
    *
    * @param callback The callback to call
    * $paramEcSingle
@@ -106,7 +111,11 @@ trait Enumerator[E] {
   def onDoneEnumerating(callback: => Unit)(implicit ec: ExecutionContext) = new Enumerator[E] {
     val pec = ec.prepare()
 
-    def apply[A](it: Iteratee[E, A]): Future[Iteratee[E, A]] = parent.apply(it).map { a => callback; a }(pec)
+    def apply[A](it: Iteratee[E, A]): Future[Iteratee[E, A]] = parent.apply(it).andThen {
+      case someTry =>
+        callback
+        someTry.get
+    }(pec)
 
   }
 
@@ -345,14 +354,6 @@ object Enumerator {
 
   }
 
-  trait Pushee[E] {
-
-    def push(item: E): Boolean
-
-    def close()
-
-  }
-
   /**
    * Like [[play.api.libs.iteratee.Enumerator.unfold]], but allows the unfolding to be done asynchronously.
    *
@@ -487,7 +488,7 @@ object Enumerator {
    * @param retriever The input function.  Returns a future eventually redeemed with Some value if there is input to pass, or a
    *          future eventually redeemed with None if the end of the stream has been reached.
    * @param onComplete Called when the end of the stream is reached.
-   * @param onError FIXME: Never called.
+   * @param onError Called when an error occured in the iteratee
    * $paramEcMultiple
    */
   def fromCallback1[E](retriever: Boolean => Future[Option[E]],
@@ -514,7 +515,18 @@ object Enumerator {
               }
             }(dec)
           }
-          case _ => { iterateeP.success(it); Future.successful(None) }
+          case Step.Error(msg, in) =>
+            onError(msg, in)
+            iterateeP.success(it)
+            Future.successful(None)
+          case _ =>
+            iterateeP.success(it)
+            Future.successful(None)
+        }(dec)
+
+        next.onFailure {
+          case reason: Exception =>
+            onError(reason.getMessage(), Input.Empty)
         }(dec)
 
         next.onComplete {
@@ -544,8 +556,10 @@ object Enumerator {
     implicit val pec = ec.prepare()
     generateM({
       val buffer = new Array[Byte](chunkSize)
-      val chunk = input.read(buffer) match {
+      val bytesRead = blocking { input.read(buffer) }
+      val chunk = bytesRead match {
         case -1 => None
+        case `chunkSize` => Some(buffer)
         case read =>
           val input = new Array[Byte](read)
           System.arraycopy(buffer, 0, input, 0, read)

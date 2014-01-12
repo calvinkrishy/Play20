@@ -7,9 +7,7 @@ Play comes with the [Ebean](http://www.avaje.org/) ORM. To enable it, add javaEb
 dependencies : 
 
 ```scala
-val appDependencies = Seq(
-  javaEbean
-)
+libraryDependencies += javaEbean
 ```
 
 then add the following line to `conf/application.conf`:
@@ -18,7 +16,7 @@ then add the following line to `conf/application.conf`:
 ebean.default="models.*"
 ```
 
-This defines a `default` Ebean server, using the `default` data source, which must be properly configured. You can actually create as many Ebean servers you need, and explicitly define the mapped class for each server.
+This defines a `default` Ebean server, using the `default` data source, which must be properly configured. You can also override the name of the default Ebean server by configuring `ebeanconfig.datasource.default` property. This might be useful if you want to use separate databases for testing and development. You can actually create as many Ebean servers you need, and explicitly define the mapped class for each server.
 
 ```properties
 ebean.orders="models.Order,models.OrderItem"
@@ -112,7 +110,8 @@ List<Task> tasks = find.where()
     .orderBy("dueDate asc")
     .findPagingList(25)
     .setFetchAhead(false)
-    .getPage(1);
+    .getPage(1)
+    .getList();
 ```
 
 ## Transactional actions

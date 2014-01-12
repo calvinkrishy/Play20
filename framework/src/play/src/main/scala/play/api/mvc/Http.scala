@@ -13,6 +13,7 @@ package play.api.mvc {
   import scala.util.control.NonFatal
   import scala.util.Try
   import java.net.{ URLDecoder, URLEncoder }
+  import scala.concurrent.duration._
 
   /**
    * The HTTP request header. Note that it doesn’t contain the request body yet.
@@ -99,7 +100,7 @@ package play.api.mvc {
      * The Request Langs extracted from the Accept-Language header and sorted by preference (preferred first).
      */
     lazy val acceptLanguages: Seq[play.api.i18n.Lang] = {
-      val langs = acceptHeader(HeaderNames.ACCEPT_LANGUAGE).map(item => (item._1, Lang.get(item._2)))
+      val langs = RequestHeader.acceptHeader(headers, HeaderNames.ACCEPT_LANGUAGE).map(item => (item._1, Lang.get(item._2)))
       langs.sortWith((a, b) => a._1 > b._1).map(_._2).flatten
     }
 
@@ -120,22 +121,6 @@ package play.api.mvc {
      */
     lazy val acceptedTypes: Seq[play.api.http.MediaRange] = {
       headers.get(HeaderNames.ACCEPT).toSeq.flatMap(MediaRange.parse.apply)
-    }
-
-    /**
-     * @return The items of an Accept* header, with their q-value.
-     */
-    private def acceptHeader(headerName: String): Seq[(Double, String)] = {
-      for {
-        header <- headers.get(headerName).toSeq
-        value0 <- header.split(',')
-        value = value0.trim
-      } yield {
-        RequestHeader.qPattern.findFirstMatchIn(value) match {
-          case Some(m) => (m.group(1).toDouble, m.before.toString)
-          case None => (1.0, value) // “The default value is q=1.”
-        }
-      }
     }
 
     /**
@@ -223,6 +208,22 @@ package play.api.mvc {
   object RequestHeader {
     // “The first "q" parameter (if any) separates the media-range parameter(s) from the accept-params.”
     val qPattern = ";\\s*q=([0-9.]+)".r
+
+    /**
+     * @return The items of an Accept* header, with their q-value.
+     */
+    private[play] def acceptHeader(headers: Headers, headerName: String): Seq[(Double, String)] = {
+      for {
+        header <- headers.get(headerName).toSeq
+        value0 <- header.split(',')
+        value = value0.trim
+      } yield {
+        RequestHeader.qPattern.findFirstMatchIn(value) match {
+          case Some(m) => (m.group(1).toDouble, m.before.toString)
+          case None => (1.0, value) // “The default value is q=1.”
+        }
+      }
+    }
   }
 
   /**
@@ -575,7 +576,9 @@ package play.api.mvc {
     val emptyCookie = new Session
     override val isSigned = true
     override def secure = Play.maybeApplication.flatMap(_.configuration.getBoolean("session.secure")).getOrElse(false)
-    override val maxAge = Play.maybeApplication.flatMap(_.configuration.getInt("session.maxAge"))
+    override val maxAge = Play.maybeApplication
+      .flatMap(_.configuration.getMilliseconds("session.maxAge")
+        .map(Duration(_, MILLISECONDS).toSeconds.toInt))
     override val httpOnly = Play.maybeApplication.flatMap(_.configuration.getBoolean("session.httpOnly")).getOrElse(true)
     override def path = Play.maybeApplication.flatMap(_.configuration.getString("application.context")).getOrElse("/")
     override def domain = Play.maybeApplication.flatMap(_.configuration.getString("session.domain"))
@@ -771,7 +774,16 @@ package play.api.mvc {
      * @return a valid Set-Cookie header value
      */
     def merge(cookieHeader: String, cookies: Seq[Cookie]): String = {
-      encode(cookies ++ decode(cookieHeader))
+      val tupledCookies = (decode(cookieHeader) ++ cookies).map { c =>
+        // See rfc6265#section-4.1.2
+        // Secure and http-only attributes are not considered when testing if
+        // two cookies are overlapping.
+        (c.name, c.path, c.domain.map(_.toLowerCase)) -> c
+      }
+      // Put cookies in a map
+      // Note: Seq.toMap do not preserve order
+      val uniqCookies = scala.collection.immutable.ListMap(tupledCookies: _*)
+      encode(uniqCookies.values.toSeq)
     }
 
   }

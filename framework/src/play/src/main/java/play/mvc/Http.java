@@ -569,7 +569,7 @@ public class Http {
         }
 
         /**
-         * Set a new transient cookie with path “/”<br />
+         * Set a new transient cookie with path “/”<br>
          * For example:
          * <pre>
          * response().setCookie("theme", "blue");
@@ -629,7 +629,7 @@ public class Http {
         }
 
         /**
-         * Discard cookies along this result<br />
+         * Discard cookies along this result<br>
          * For example:
          * <pre>
          * response().discardCookies("theme");
@@ -658,7 +658,7 @@ public class Http {
         }
 
         /**
-         * Discard a cookie on the give path with no domain and not that's secure
+         * Discard a cookie on the given path with no domain and not that's secure
          *
          * @param name The name of the cookie to discard.  Must not be null.
          * @param path The path of the cookie te discard, may be null

@@ -5,16 +5,16 @@ package play.it.http
 
 import play.api.mvc._
 import play.api.test._
-import play.api.libs.ws.Response
+import play.api.libs.ws._
 import play.api.libs.iteratee._
 
 import play.api.libs.concurrent.Execution.{defaultContext => ec}
 
-object ScalaResultsHandlingSpec extends PlaySpecification {
+object ScalaResultsHandlingSpec extends PlaySpecification with WsTestClient {
 
   "scala body handling" should {
 
-    def makeRequest[T](result: SimpleResult)(block: Response => T) = withServer(result) { implicit port =>
+    def makeRequest[T](result: SimpleResult)(block: WSResponse => T) = withServer(result) { implicit port =>
       val response = await(wsUrl("/").get())
       block(response)
     }
@@ -57,12 +57,37 @@ object ScalaResultsHandlingSpec extends PlaySpecification {
       response.body must_== "abc"
     }
 
-    "close the connection for feed results" in makeRequest(
+    "close the connection for feed results" in withServer(
       Results.Ok.feed(Enumerator("a", "b", "c"))
-    ) { response =>
-      response.header(TRANSFER_ENCODING) must beNone
-      response.header(CONTENT_LENGTH) must beNone
-      response.body must_== "abc"
+    ) { port =>
+      val response = BasicHttpClient.makeRequests(port, checkClosed = true)(
+        BasicRequest("GET", "/", "HTTP/1.1", Map(), "")
+      )(0)
+      response.status must_== 200
+      response.headers.get(TRANSFER_ENCODING) must beNone
+      response.headers.get(CONTENT_LENGTH) must beNone
+      response.headers.get(CONNECTION) must beSome("close")
+      response.body must beLeft("abc")
+    }
+
+    "close the HTTP 1.1 connection when requested" in withServer(
+      Results.Ok.copy(connection = HttpConnection.Close)
+    ) { port =>
+      val response = BasicHttpClient.makeRequests(port, checkClosed = true)(
+        BasicRequest("GET", "/", "HTTP/1.1", Map(), "")
+      )(0)
+      response.status must_== 200
+      response.headers.get(CONNECTION) must beSome("close")
+    }
+
+    "close the HTTP 1.0 connection when requested" in withServer(
+      Results.Ok.copy(connection = HttpConnection.Close)
+    ) { port =>
+      val response = BasicHttpClient.makeRequests(port, checkClosed = true)(
+        BasicRequest("GET", "/", "HTTP/1.0", Map("Connection" -> "keep-alive"), "")
+      )(0)
+      response.status must_== 200
+      response.headers.get(CONNECTION) must beNone
     }
 
     "close the connection when the connection close header is present" in withServer(
@@ -89,6 +114,7 @@ object ScalaResultsHandlingSpec extends PlaySpecification {
         BasicRequest("GET", "/", "HTTP/1.0", Map(), "")
       )
       responses(0).status must_== 200
+      responses(0).headers.get(CONNECTION) must beSome("keep-alive")
       responses(1).status must_== 200
     }
 
@@ -182,6 +208,25 @@ object ScalaResultsHandlingSpec extends PlaySpecification {
 
       response.status must_== 500
       response.body must beLeft("")
+    }
+
+    "return a 400 error on invalid URI" in withServer(
+      Results.Ok
+    ){ port =>
+      val response = BasicHttpClient.makeRequests(port)(
+        BasicRequest("GET", "/[", "HTTP/1.1", Map(), "")
+      )(0)
+
+      response.status must_== 400
+      response.body must beLeft
+    }
+
+    "not send empty chunks before the end of the enumerator stream" in makeRequest(
+      Results.Ok.chunked(Enumerator("foo", "", "bar"))
+    ) { response =>
+      response.header(TRANSFER_ENCODING) must beSome("chunked")
+      response.header(CONTENT_LENGTH) must beNone
+      response.body must_== "foobar"
     }
 
   }

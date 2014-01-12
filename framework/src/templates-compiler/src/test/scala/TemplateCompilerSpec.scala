@@ -12,9 +12,9 @@ object TemplateCompilerSpec extends Specification {
 
   import Helper._
 
-  val sourceDir = new File("src/templates-compiler/src/test/templates")
-  val generatedDir = new File("src/templates-compiler/target/test/generated-templates")
-  val generatedClasses = new File("src/templates-compiler/target/test/generated-classes")
+  val sourceDir = new File("src/test/resources")
+  val generatedDir = new File("target/test/generated-templates")
+  val generatedClasses = new File("target/test/generated-classes")
   scalax.file.Path(generatedDir).deleteRecursively()
   scalax.file.Path(generatedClasses).deleteRecursively()
   scalax.file.Path(generatedClasses).createDirectory()
@@ -64,6 +64,30 @@ object TemplateCompilerSpec extends Specification {
       }
     }
 
+    "compile templates that have contiguous strings > than 64k" in {
+      val helper = new CompilerHelper(sourceDir, generatedDir, generatedClasses)
+      val input = (scalax.file.Path(sourceDir) / "long.scala.html").string
+      val result = helper.compile[(() => Html)]("long.scala.html", "html.long")().toString
+      result.length must_== input.length
+      result must_== input
+    }
+  }
+
+  "StringGrouper" should {
+    val beer = "\uD83C\uDF7A"
+    val line = "abcde" + beer + "fg"
+
+    "split before a surrogate pair" in {
+      StringGrouper(line, 5) must exactly("abcde", beer + "fg")
+    }
+
+    "not split a surrogate pair" in {
+      StringGrouper(line, 6) must exactly("abcde" + beer, "fg")
+    }
+
+    "split after a surrogate pair" in {
+      StringGrouper(line, 7) must exactly("abcde" + beer, "fg")
+    }
   }
 
 }

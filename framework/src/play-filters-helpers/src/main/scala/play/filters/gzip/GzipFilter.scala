@@ -8,6 +8,7 @@ import play.api.mvc._
 import scala.concurrent.Future
 import play.api.mvc.SimpleResult
 import play.api.mvc.ResponseHeader
+import play.api.mvc.RequestHeader.acceptHeader
 import org.jboss.netty.handler.codec.http.HttpHeaders.Names
 import play.api.http.{ Status, MimeTypes }
 import play.api.libs.concurrent.Execution.Implicits._
@@ -139,8 +140,17 @@ class GzipFilter(gzip: Enumeratee[Array[Byte], Array[Byte]] = Gzip.gzip(GzipFilt
   /**
    * Whether this request may be compressed.
    */
-  private def mayCompress(request: RequestHeader) = request.method != "HEAD" &&
-    request.headers.get(Names.ACCEPT_ENCODING).flatMap(_.split(',').find(_ == "gzip")).isDefined
+  private def mayCompress(request: RequestHeader) =
+    request.method != "HEAD" && gzipIsAcceptedAndPreferredBy(request)
+
+  private def gzipIsAcceptedAndPreferredBy(request: RequestHeader) = {
+    val codings = acceptHeader(request.headers, ACCEPT_ENCODING)
+    def explicitQValue(coding: String) = codings collectFirst { case (q, c) if c equalsIgnoreCase coding => q }
+    def defaultQValue(coding: String) = if (coding == "identity") 0.001d else 0d
+    def qvalue(coding: String) = explicitQValue(coding) orElse explicitQValue("*") getOrElse defaultQValue(coding)
+
+    qvalue("gzip") > 0d && qvalue("gzip") >= qvalue("identity")
+  }
 
   /**
    * Whether this response should be compressed.  Responses that may not contain content won't be compressed, nor will
@@ -175,7 +185,17 @@ class GzipFilter(gzip: Enumeratee[Array[Byte], Array[Byte]] = Gzip.gzip(GzipFilt
   private def isNotAlreadyCompressed(header: ResponseHeader) = header.headers.get(Names.CONTENT_ENCODING).isEmpty
 
   private def setupHeader(header: Map[String, String]): Map[String, String] = {
-    header.filterNot(_._1 == Names.CONTENT_LENGTH) + (Names.CONTENT_ENCODING -> "gzip") + (Names.VARY -> Names.ACCEPT_ENCODING)
+    header.filterNot(_._1 == Names.CONTENT_LENGTH) + (Names.CONTENT_ENCODING -> "gzip") + addToVaryHeader(header, Names.VARY, Names.ACCEPT_ENCODING)
+  }
+
+  /**
+   * There may be an existing Vary value, which we must add to (comma separated)
+   */
+  private def addToVaryHeader(existingHeaders: Map[String, String], headerName: String, headerValue: String): (String, String) = {
+    existingHeaders.get(headerName) match {
+      case None => (headerName, headerValue)
+      case Some(existing) => (headerName, s"$existing,$headerValue")
+    }
   }
 }
 

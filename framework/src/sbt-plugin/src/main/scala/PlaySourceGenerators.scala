@@ -9,7 +9,7 @@ import play.api.PlayException
 
 trait PlaySourceGenerators {
 
-  val RouteFiles = (state: State, sourceDirectories: Seq[File], generatedDir: File, additionalImports: Seq[String], reverseRouter: Boolean, namespaceReverseRouter: Boolean) => {
+  val RouteFiles = (state: State, sourceDirectories: Seq[File], generatedDir: File, additionalImports: Seq[String], reverseRouter: Boolean, reverseRefRouter: Boolean, namespaceReverseRouter: Boolean) => {
     import play.router.RoutesCompiler._
 
     val javaRoutes = (generatedDir ** "routes.java")
@@ -17,20 +17,19 @@ trait PlaySourceGenerators {
     (javaRoutes.get ++ scalaRoutes.get).map(GeneratedSource(_)).foreach(_.sync())
     try {
       { (sourceDirectories * "*.routes").get ++ (sourceDirectories * "routes").get }.map { routesFile =>
-        compile(routesFile, generatedDir, additionalImports, reverseRouter, namespaceReverseRouter)
+        compile(routesFile, generatedDir, additionalImports, reverseRouter, reverseRefRouter, namespaceReverseRouter)
       }
     } catch {
       case RoutesCompilationError(source, message, line, column) => {
         throw reportCompilationError(state, RoutesCompilationException(source, message, line, column.map(_ - 1)))
       }
-      case e: Throwable => throw e
     }
 
     (scalaRoutes.get ++ javaRoutes.get).map(_.getAbsoluteFile)
 
   }
 
-  val ScalaTemplates = (state: State, sourceDirectories: Seq[File], generatedDir: File, templateTypes: Map[String, String], additionalImports: Seq[String]) => {
+  val ScalaTemplates = (state: State, sourceDirectories: Seq[File], generatedDir: File, templateTypes: Map[String, String], additionalImports: Seq[String], excludeFilter: FileFilter) => {
     import play.templates._
 
     val templateExt: PartialFunction[File, (File, String, String)] = {
@@ -43,7 +42,7 @@ trait PlaySourceGenerators {
     try {
 
       sourceDirectories.foreach { sourceDirectory =>
-        (sourceDirectory ** "*.scala.*").get.collect(templateExt).foreach {
+        (sourceDirectory ** "*.scala.*").get.filterNot(excludeFilter.accept(_)).collect(templateExt).foreach {
           case (template, extension, format) =>
             ScalaTemplateCompiler.compile(
               template,

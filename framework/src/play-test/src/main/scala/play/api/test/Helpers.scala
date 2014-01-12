@@ -6,7 +6,6 @@ package play.api.test
 import scala.language.reflectiveCalls
 
 import play.api._
-import libs.ws.WS
 import play.api.mvc._
 import play.api.http._
 
@@ -48,7 +47,6 @@ trait PlayRunners {
         block
       } finally {
         Play.stop()
-        play.api.libs.ws.WS.resetClient()
       }
     }
   }
@@ -71,11 +69,18 @@ trait PlayRunners {
    * Executes a block of code in a running server, with a test browser.
    */
   def running[T, WEBDRIVER <: WebDriver](testServer: TestServer, webDriver: Class[WEBDRIVER])(block: TestBrowser => T): T = {
+    running(testServer, WebDriverFactory(webDriver))(block)
+  }
+
+  /**
+   * Executes a block of code in a running server, with a test browser.
+   */
+  def running[T](testServer: TestServer, webDriver: WebDriver)(block: TestBrowser => T): T = {
     var browser: TestBrowser = null
     synchronized {
       try {
         testServer.start()
-        browser = TestBrowser.of(webDriver)
+        browser = TestBrowser(webDriver, None)
         block(browser)
       } finally {
         if (browser != null) {
@@ -171,25 +176,33 @@ trait FutureAwaits {
 
 }
 
-trait WsTestClient {
+trait EssentialActionCaller {
+  self: Writeables =>
 
   /**
-   * Construct a WS request for the given reverse route.
+   * Execute an [[play.api.mvc.EssentialAction]].
    *
-   * For example:
-   * {{{
-   *   wsCall(controllers.routes.Application.index()).get()
-   * }}}
+   * The body is serialised using the implicit writable, so that the action body parser can deserialise it.
    */
-  def wsCall(call: Call)(implicit port: Port): WS.WSRequestHolder = wsUrl(call.url)
+  def call[T](action: EssentialAction, req: FakeRequest[T])(implicit w: Writeable[T]): Future[SimpleResult] =
+    call(action, req, req.body)
 
   /**
-   * Construct a WS request for the given relative URL.
+   * Execute an [[play.api.mvc.EssentialAction]].
+   *
+   * The body is serialised using the implicit writable, so that the action body parser can deserialise it.
    */
-  def wsUrl(url: String)(implicit port: Port): WS.WSRequestHolder = WS.url("http://localhost:" + port + url)
+  def call[T](action: EssentialAction, rh: RequestHeader, body: T)(implicit w: Writeable[T]): Future[SimpleResult] = {
+    val rhWithCt = w.contentType.map(ct => rh.copy(
+      headers = FakeHeaders((rh.headers.toMap + ("Content-Type" -> Seq(ct))).toSeq)
+    )).getOrElse(rh)
+
+    val requestBody = Enumerator(body) &> w.toEnumeratee
+    requestBody |>>> action(rhWithCt)
+  }
 }
 
-trait RouteInvokers {
+trait RouteInvokers extends EssentialActionCaller {
   self: Writeables =>
 
   /**
@@ -247,20 +260,15 @@ trait RouteInvokers {
    * The body is serialised using the implicit writable, so that the action body parser can deserialise it.
    */
   def route[T](app: Application, rh: RequestHeader, body: T)(implicit w: Writeable[T]): Option[Future[SimpleResult]] = {
-    val rhWithCt = w.contentType.map(ct => rh.copy(
-      headers = FakeHeaders((rh.headers.toMap + ("Content-Type" -> Seq(ct))).toSeq)
-    )).getOrElse(rh)
-    val handler = app.global.onRouteRequest(rhWithCt)
+    val handler = app.global.onRouteRequest(rh)
     val taggedRh = handler.map({
-      case h: RequestTaggingHandler => h.tagRequest(rhWithCt)
+      case h: RequestTaggingHandler => h.tagRequest(rh)
       case _ => rh
-    }).getOrElse(rhWithCt)
+    }).getOrElse(rh)
     handler.flatMap {
-      case a: EssentialAction => Some(
-        app.global.doFilter(a)(taggedRh)
-          .feed(Input.El(w.transform(body)))
-          .flatMap(_.run)
-      )
+      case a: EssentialAction =>
+        val filteredAction = app.global.doFilter(a)
+        Some(call(filteredAction, taggedRh, body))
 
       case _ => None
     }
@@ -390,6 +398,6 @@ object Helpers extends PlayRunners
   with DefaultAwaitTimeout
   with ResultExtractors
   with Writeables
+  with EssentialActionCaller
   with RouteInvokers
-  with WsTestClient
   with FutureAwaits

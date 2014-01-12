@@ -13,6 +13,7 @@ You can run tests from the Play console.
 * To run only one test class, run `test-only` followed by the name of the class i.e. `test-only my.namespace.MySpec`.
 * To run only the tests that have failed, run `test-quick`.
 * To run tests continually, run a command with a tilde in front, i.e. `~test-quick`.
+* To access test helpers such as `FakeApplication` in console, run `test:console`.
 
 Testing in Play is based on SBT, and a full description is available in the [testing SBT](http://www.scala-sbt.org/0.13.0/docs/Detailed-Topics/Testing) chapter.
 
@@ -131,5 +132,14 @@ Controllers are defined as objects in Play, and so can be trickier to unit test.
 and then test the trait:
 
 @[scalatest-examplecontrollerspec](code/ExampleControllerSpec.scala)
+
+## Unit Testing EssentialAction
+
+Testing [`Action`](api/scala/index.html#play.api.mvc.Action) or [`Filter`](api/scala/index.html#play.api.mvc.Filter) can require to test an an [`EssentialAction`](api/scala/index.html#play.api.mvc.EssentialAction) ([[more information about what an EssentialAction is|HttpApi]])
+
+For this, the test [`Helpers.call`](api/scala/index.html#play.api.test.Helpers@call) can be used like that:
+
+@[scalatest-exampleessentialactionspec](code/ExampleEssentialActionSpec.scala)
+
 
 > **Next:** [[Writing functional tests|ScalaFunctionalTest]]

@@ -157,7 +157,7 @@ sealed trait WithHeaders[+A <: Result] {
    *
    * For example:
    * {{{
-   * Ok("Hello world").flashing(flash + ("success" -> "Done!"))
+   * Redirect(routes.Application.index()).flashing(flash + ("success" -> "Done!"))
    * }}}
    *
    * @param flash the flash scope to set with this result
@@ -170,7 +170,7 @@ sealed trait WithHeaders[+A <: Result] {
    *
    * For example:
    * {{{
-   * Ok("Hello world").flashing("success" -> "Done!")
+   * Redirect(routes.Application.index()).flashing("success" -> "Done!")
    * }}}
    *
    * @param values the flash values to set with this result
@@ -267,7 +267,7 @@ object HttpConnection extends Enumeration {
  * @param connection the connection semantics to use
  */
 case class SimpleResult(header: ResponseHeader, body: Enumerator[Array[Byte]],
-    connection: HttpConnection.Connection = HttpConnection.KeepAlive) extends PlainResult {
+    connection: HttpConnection.Connection = HttpConnection.KeepAlive) extends PlainResult with WithHeaders[SimpleResult] {
 
   /**
    * Adds headers to this result.
@@ -289,7 +289,7 @@ case class SimpleResult(header: ResponseHeader, body: Enumerator[Array[Byte]],
    *
    * For example:
    * {{{
-   * Ok("Hello world").withCookies(Cookie("theme", "blue"))
+   * Redirect(routes.Application.index()).withCookies(Cookie("theme", "blue"))
    * }}}
    *
    * @param cookies the cookies to add to this result
@@ -304,7 +304,7 @@ case class SimpleResult(header: ResponseHeader, body: Enumerator[Array[Byte]],
    *
    * For example:
    * {{{
-   * Ok("Hello world").discardingCookies("theme")
+   * Redirect(routes.Application.index()).discardingCookies("theme")
    * }}}
    *
    * @param cookies the cookies to discard along to this result
@@ -319,7 +319,7 @@ case class SimpleResult(header: ResponseHeader, body: Enumerator[Array[Byte]],
    *
    * For example:
    * {{{
-   * Ok("Hello world").withSession(session + ("saidHello" -> "true"))
+   * Redirect(routes.Application.index()).withSession(session + ("saidHello" -> "true"))
    * }}}
    *
    * @param session the session to set with this result
@@ -334,7 +334,7 @@ case class SimpleResult(header: ResponseHeader, body: Enumerator[Array[Byte]],
    *
    * For example:
    * {{{
-   * Ok("Hello world").withSession("saidHello" -> "yes")
+   * Redirect(routes.Application.index()).withSession("saidHello" -> "yes")
    * }}}
    *
    * @param session the session to set with this result
@@ -347,7 +347,7 @@ case class SimpleResult(header: ResponseHeader, body: Enumerator[Array[Byte]],
    *
    * For example:
    * {{{
-   * Ok("Hello world").withNewSession
+   * Redirect(routes.Application.index()).withNewSession
    * }}}
    *
    * @return the new result
@@ -359,13 +359,16 @@ case class SimpleResult(header: ResponseHeader, body: Enumerator[Array[Byte]],
    *
    * For example:
    * {{{
-   * Ok("Hello world").flashing(flash + ("success" -> "Done!"))
+   * Redirect(routes.Application.index()).flashing(flash + ("success" -> "Done!"))
    * }}}
    *
    * @param flash the flash scope to set with this result
    * @return the new result
    */
   def flashing(flash: Flash): SimpleResult = {
+    if (shouldWarnIfNotRedirect) {
+      logRedirectWarning("flashing")
+    }
     withCookies(Flash.encodeAsCookie(flash))
   }
 
@@ -374,7 +377,7 @@ case class SimpleResult(header: ResponseHeader, body: Enumerator[Array[Byte]],
    *
    * For example:
    * {{{
-   * Ok("Hello world").flashing("success" -> "Done!")
+   * Redirect(routes.Application.index()).flashing("success" -> "Done!")
    * }}}
    *
    * @param values the flash values to set with this result
@@ -395,8 +398,58 @@ case class SimpleResult(header: ResponseHeader, body: Enumerator[Array[Byte]],
    */
   def as(contentType: String): SimpleResult = withHeaders(CONTENT_TYPE -> contentType)
 
+  /**
+   * @param request Current request
+   * @return The session carried by this result. Reads the request’s session if this result does not modify the session.
+   */
+  def session(implicit request: RequestHeader): Session =
+    Cookies(header.headers.get(SET_COOKIE)).get(Session.COOKIE_NAME) match {
+      case Some(cookie) => Session.decodeFromCookie(Some(cookie))
+      case None => request.session
+    }
+
+  /**
+   * Example:
+   * {{{
+   *   Ok.addingToSession("foo" -> "bar").addingToSession("baz" -> "bah")
+   * }}}
+   * @param values (key -> value) pairs to add to this result’s session
+   * @param request Current request
+   * @return A copy of this result with `values` added to its session scope.
+   */
+  def addingToSession(values: (String, String)*)(implicit request: RequestHeader): SimpleResult =
+    withSession(new Session(session.data ++ values.toMap))
+
+  /**
+   * Example:
+   * {{{
+   *   Ok.removingFromSession("foo")
+   * }}}
+   * @param keys Keys to remove from session
+   * @param request Current request
+   * @return A copy of this result with `keys` removed from its session scope.
+   */
+  def removingFromSession(keys: String*)(implicit request: RequestHeader): SimpleResult =
+    withSession(new Session(session.data -- keys))
+
   override def toString = {
     "SimpleResult(" + header + ")"
+  }
+
+  /**
+   * Returns true if the status code is not 3xx and the application is in Dev mode.
+   */
+  def shouldWarnIfNotRedirect: Boolean = {
+    play.api.Play.maybeApplication.exists(app =>
+      (app.mode == play.api.Mode.Dev) && (header.status < 300 || header.status > 399))
+  }
+
+  /**
+   * Logs a redirect warning.
+   */
+  def logRedirectWarning(methodName: String) {
+    val status = header.status
+    play.api.Logger("play").warn(s"You are using status code '$status' with $methodName, which should only be used with a redirect status!")
   }
 
 }
@@ -784,10 +837,16 @@ trait Results {
     // adds the last chunk.
     new Enumeratee[Array[Byte], Array[Byte]] {
       def applyOn[A](inner: Iteratee[Array[Byte], A]) = {
-        // Our inner iteratee will be passed through the chunking enumeratee, and also we don't want to feed EOF to
-        // it yet, instead we want to get it as the result, so that we can then feed the last chunk into it.  We use
-        // the passAlong enumeratee to achieve this.
-        val chunkedInner: Iteratee[Array[Byte], Iteratee[Array[Byte], A]] = formatChunks ><> Enumeratee.passAlong &> inner
+
+        val chunkedInner: Iteratee[Array[Byte], Iteratee[Array[Byte], A]] =
+          // First filter out empty chunks - an empty chunk signifies end of stream in chunked transfer encoding
+          Enumeratee.filterNot[Array[Byte]](_.isEmpty) ><>
+            // Apply the chunked encoding
+            formatChunks ><>
+            // Don't feed EOF into the iteratee - so we can feed the last chunk ourselves later
+            Enumeratee.passAlong &>
+            // And apply the inner iteratee
+            inner
 
         trailers match {
           case Some(trailersIteratee) => {

@@ -22,17 +22,17 @@ object BuildSettings {
     (x => x == "true" || x == "") map
     (_ => true) getOrElse default
 
-  val experimental = Option(System.getProperty("experimental")).filter(_ == "true").map(_ => true).getOrElse(false)
+  val experimental = Option(System.getProperty("experimental")).exists(_ == "true")
 
   val buildOrganization = "com.typesafe.play"
   val buildVersion = propOr("play.version", "2.3-SNAPSHOT")
   val buildWithDoc = boolProp("generate.doc")
   val previousVersion = "2.1.0"
-  val buildScalaVersion = propOr("scala.version", "2.10.3-RC3")
+  val buildScalaVersion = propOr("scala.version", "2.10.3")
   // TODO - Try to compute this from SBT... or not.
-  val buildScalaVersionForSbt = propOr("play.sbt.scala.version", "2.10.3-RC3")
+  val buildScalaVersionForSbt = propOr("play.sbt.scala.version", "2.10.3")
   val buildScalaBinaryVersionForSbt = CrossVersion.binaryScalaVersion(buildScalaVersionForSbt)
-  val buildSbtVersion = propOr("play.sbt.version", "0.13.0")
+  val buildSbtVersion = propOr("play.sbt.version", "0.13.1")
   val buildSbtMajorVersion = "0.13"
   val buildSbtVersionBinaryCompatible = CrossVersion.binarySbtVersion(buildSbtVersion)
   // Used by api docs generation to link back to the correct branch on GitHub, only when version is a SNAPSHOT
@@ -51,6 +51,7 @@ object BuildSettings {
     javacOptions in doc := Seq("-source", "1.6"),
     resolvers ++= typesafeResolvers,
     fork in Test := true,
+    testListeners in (Test,test) := Nil,
     testOptions in Test += Tests.Filter(!_.endsWith("Benchmark")),
     testOptions in PerformanceTest ~= (_.filterNot(_.isInstanceOf[Tests.Filter]) :+ Tests.Filter(_.endsWith("Benchmark"))),
     parallelExecution in PerformanceTest := false
@@ -159,6 +160,7 @@ object PlayBuild extends Build {
     )
 
   lazy val AnormProject = PlayRuntimeProject("Anorm", "anorm")
+    .settings(libraryDependencies ++= anormDependencies)
 
   lazy val IterateesProject = PlayRuntimeProject("Play-Iteratees", "iteratees")
     .settings(libraryDependencies := iterateesDependencies)
@@ -225,14 +227,13 @@ object PlayBuild extends Build {
   lazy val PlayJavaProject = PlayRuntimeProject("Play-Java", "play-java")
     .settings(libraryDependencies := javaDeps)
     .dependsOn(PlayProject)
-    .dependsOn(PlayTestProject % "test")
 
   lazy val PlayDocsProject = PlayRuntimeProject("Play-Docs", "play-docs")
     .settings(Docs.settings: _*)
     .settings(
       libraryDependencies := playDocsDependencies
     ).dependsOn(PlayProject)
-  
+
   import ScriptedPlugin._
 
   lazy val SbtPluginProject = PlaySbtProject("SBT-Plugin", "sbt-plugin")
@@ -259,7 +260,6 @@ object PlayBuild extends Build {
     .settings(
       scriptedLaunchOpts <++= (baseDirectory in ThisBuild) { baseDir =>
         Seq(
-          "-Dsbt.ivy.home=" + new File(baseDir.getParent, "repository"),
           "-Dsbt.boot.directory=" + new File(baseDir, "sbt/boot"),
           "-Dplay.home=" + System.getProperty("play.home"),
           "-XX:MaxPermSize=384M",
@@ -274,42 +274,24 @@ object PlayBuild extends Build {
       sourceGenerators in Compile <+= sourceManaged in Compile map PlayVersion
     )
 
+  lazy val PlayWsProject = PlayRuntimeProject("Play-WS", "play-ws")
+    .settings(
+      libraryDependencies := playWsDeps,
+      parallelExecution in Test := false
+    ).dependsOn(PlayProject)
+    .dependsOn(PlayTestProject % "test")
+
+  lazy val PlayWsJavaProject = PlayRuntimeProject("Play-Java-WS", "play-java-ws")
+      .settings(
+        libraryDependencies := playWsDeps,
+        parallelExecution in Test := false
+      ).dependsOn(PlayProject)
+    .dependsOn(PlayWsProject, PlayJavaProject)
+
   lazy val PlayFiltersHelpersProject = PlayRuntimeProject("Filters-Helpers", "play-filters-helpers")
     .settings(
-      binaryIssueFilters ++= Seq(
-        // When we upgrade to mima with SBT 0.13 we can filter by package...
-        // Basically we had to change CSRFFilter to use by name parameters, which meant it could no
-        // longer be a case class, which is why there's so much breakage here.
-        ProblemFilters.exclude[MissingTypesProblem]("play.filters.csrf.CSRFFilter"),
-        ProblemFilters.exclude[MissingMethodProblem]("play.filters.csrf.CSRFFilter.copy$default$3"),
-        ProblemFilters.exclude[MissingMethodProblem]("play.filters.csrf.CSRFFilter.copy"),
-        ProblemFilters.exclude[MissingMethodProblem]("play.filters.csrf.CSRFFilter.copy$default$1"),
-        ProblemFilters.exclude[MissingMethodProblem]("play.filters.csrf.CSRFFilter.copy$default$2"),
-        ProblemFilters.exclude[MissingMethodProblem]("play.filters.csrf.CSRFFilter.toString"),
-        ProblemFilters.exclude[MissingMethodProblem]("play.filters.csrf.CSRFFilter.productPrefix"),
-        ProblemFilters.exclude[MissingMethodProblem]("play.filters.csrf.CSRFFilter.createIfNotFound"),
-        ProblemFilters.exclude[MissingMethodProblem]("play.filters.csrf.CSRFFilter.productArity"),
-        ProblemFilters.exclude[MissingMethodProblem]("play.filters.csrf.CSRFFilter.this"),
-        ProblemFilters.exclude[MissingMethodProblem]("play.filters.csrf.CSRFFilter.canEqual"),
-        ProblemFilters.exclude[MissingMethodProblem]("play.filters.csrf.CSRFFilter.equals"),
-        ProblemFilters.exclude[MissingMethodProblem]("play.filters.csrf.CSRFFilter.tokenName"),
-        ProblemFilters.exclude[MissingMethodProblem]("play.filters.csrf.CSRFFilter.productElement"),
-        ProblemFilters.exclude[MissingMethodProblem]("play.filters.csrf.CSRFFilter.cookieName"),
-        ProblemFilters.exclude[MissingMethodProblem]("play.filters.csrf.CSRFFilter.hashCode"),
-        ProblemFilters.exclude[MissingMethodProblem]("play.filters.csrf.CSRFFilter.copy$default$4"),
-        ProblemFilters.exclude[MissingMethodProblem]("play.filters.csrf.CSRFFilter.secureCookie"),
-        ProblemFilters.exclude[MissingMethodProblem]("play.filters.csrf.CSRFFilter.productIterator"),
-        ProblemFilters.exclude[MissingTypesProblem]("play.filters.csrf.CSRFFilter$"),
-        ProblemFilters.exclude[MissingMethodProblem]("play.filters.csrf.CSRFFilter.apply"),
-        ProblemFilters.exclude[MissingMethodProblem]("play.filters.csrf.CSRFFilter.apply"),
-        ProblemFilters.exclude[MissingMethodProblem]("play.filters.csrf.CSRFFilter.unapply"),
-        ProblemFilters.exclude[MissingMethodProblem]("play.filters.csrf.CSRFFilter.toString"),
-        ProblemFilters.exclude[MissingMethodProblem]("play.filters.csrf.CSRFAction.this"),
-        ProblemFilters.exclude[MissingMethodProblem]("play.filters.csrf.CSRFAddToken#CSRFAddTokenAction.this"),
-        ProblemFilters.exclude[MissingMethodProblem]("play.filters.csrf.CSRFCheck#CSRFCheckAction.this")
-      ),
       parallelExecution in Test := false
-    ).dependsOn(PlayProject, PlayTestProject % "test", PlayJavaProject % "test")
+    ).dependsOn(PlayProject, PlayTestProject % "test", PlayJavaProject % "test", PlayWsProject % "test")
 
   // This project is just for testing Play, not really a public artifact
   lazy val PlayIntegrationTestProject = PlayRuntimeProject("Play-Integration-Test", "play-integration-test")
@@ -318,7 +300,9 @@ object PlayBuild extends Build {
       libraryDependencies := integrationTestDependencies,
       previousArtifact := None
     )
-    .dependsOn(PlayProject % "test->test", PlayTestProject)
+    .dependsOn(PlayProject % "test->test", PlayWsProject, PlayWsJavaProject, PlayTestProject)
+    .dependsOn(PlayFiltersHelpersProject)
+    .dependsOn(PlayJavaProject)
 
   lazy val PlayCacheProject = PlayRuntimeProject("Play-Cache", "play-cache")
     .settings(
@@ -362,6 +346,8 @@ object PlayBuild extends Build {
     PlayJavaJdbcProject,
     PlayEbeanProject,
     PlayJpaProject,
+    PlayWsProject,
+    PlayWsJavaProject,
     SbtPluginProject,
     ConsoleProject,
     PlayTestProject,
@@ -370,13 +356,14 @@ object PlayBuild extends Build {
     PlayFiltersHelpersProject,
     PlayIntegrationTestProject
   )
-    
+
   lazy val Root = Project(
     "Root",
     file("."))
     .settings(playCommonSettings: _*)
     .settings(dontPublishSettings:_*)
     .settings(
+      concurrentRestrictions in Global += Tags.limit(Tags.Test, 1),
       libraryDependencies := (runtime ++ jdbcDeps),
       Docs.apiDocsInclude := false,
       Docs.apiDocsIncludeManaged := false,

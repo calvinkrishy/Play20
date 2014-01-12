@@ -11,7 +11,7 @@ import module.Routes
 
 import scala.concurrent.Future
 
-class ApplicationSpec extends PlaySpecification {
+class ApplicationSpec extends PlaySpecification with WsTestClient {
 
   "an Application" should {
   
@@ -25,14 +25,14 @@ class ApplicationSpec extends PlaySpecification {
       contentAsString(result) must contain("Hello world")
     }
 
-    "tess custom validator failure" in new WithApplication() {
+    "test custom validator failure" in new WithApplication() {
       import play.data._
        val userForm = new Form(classOf[JUser])
        val anyData = new java.util.HashMap[String,String]
        anyData.put("email", "")
-       userForm.bind(anyData).errors.toString must contain("ValidationError(email,error.invalid,[class validator.NotEmpty]")
+       userForm.bind(anyData).errors.toString must contain("ValidationError(email,[error.invalid],[class validator.NotEmpty]")
     }
-    "tess custom validator passing" in new WithApplication() {
+    "test custom validator passing" in new WithApplication() {
       import play.data._
        val userForm = new Form(classOf[JUser])
        val anyData = new java.util.HashMap[String,String]
@@ -86,6 +86,13 @@ class ApplicationSpec extends PlaySpecification {
     "not serve asset directories" in new WithApplication() {
       val Some(result) = route(FakeRequest(GET, "/public//"))
       status(result) must equalTo (NOT_FOUND)
+    }
+
+    "serve assets" in new WithApplication() {
+      val Some(result1) = route(FakeRequest(GET, "/public/empty.txt"))
+      status(result1) must equalTo (OK)
+      val Some(result2) = route(FakeRequest(GET, "/public//empty.txt"))
+      status(result2) must equalTo (OK)
     }
    
     "remove cache elements" in new WithApplication() {
@@ -343,6 +350,40 @@ class ApplicationSpec extends PlaySpecification {
     "execute Java Promise in controller instance" in new WithApplication() {
       val Some(result) = route(FakeRequest(GET, "/promisedInstance"))
       status(result) must equalTo(OK)
+    }
+
+    "break down code adding values to the session" in new WithApplication(FakeApplication(additionalConfiguration = Map("application.secret" -> "foobar"))) {
+      import play.api.mvc.{SimpleResult, RequestHeader, Results}
+
+      implicit val request = FakeRequest(GET, "/").withSession("blah" -> "42", "toto" -> "tata")
+
+      def setFoo(implicit request: RequestHeader) =
+        (result: SimpleResult) => result.addingToSession("foo" -> "bar")
+
+      def setBaz(implicit request: RequestHeader) =
+        (result: SimpleResult) => result.addingToSession("baz" -> "bah")
+
+      def removeBlah(implicit request: RequestHeader) =
+        (result: SimpleResult) => result.removingFromSession("blah")
+
+      val result = (setFoo andThen setBaz andThen removeBlah)(Results.Ok)
+
+      val setCookie = result.header.headers(SET_COOKIE)
+      setCookie must contain ("toto=tata")
+      setCookie must contain ("foo=bar")
+      setCookie must contain ("baz=bah")
+      setCookie must not contain ("blah")
+    }
+
+    "read the session from the request even if another cookie has been set on a result" in new WithApplication(FakeApplication(additionalConfiguration = Map("application.secret" -> "foobar"))) {
+      import play.api.mvc.{Results, Cookie}
+
+      implicit val request = FakeRequest(GET, "/").withSession("foo" -> "bar")
+
+      val session = Results.Ok.withCookies(Cookie("Toto", "titi")).session
+
+      session.get("foo") must equalTo (Some("bar"))
+
     }
 
   }

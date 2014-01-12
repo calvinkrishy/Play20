@@ -7,7 +7,15 @@ There are two important parts to using the WS API: making a request, and process
 
 ## Making a Request
 
-To use WS, first import the following:
+To use WS, first add `ws` to your `build.sbt` file:
+
+```scala
+libraryDependencies ++= Seq(
+  ws
+)
+```
+
+Then import the following:
 
 ```scala
 import play.api.libs.ws._
@@ -212,7 +220,7 @@ Use the following properties to configure the WS client
  
 ### Timeouts
 
-There ore 3 different timeouts in WS. Reaching a timeout causes the WS request to interrupt.
+There are 3 different timeouts in WS. Reaching a timeout causes the WS request to interrupt.
 
 * **Connection Timeout**: The maximum time to wait when connecting to the remote host *(default is **120 seconds**)*.
 * **Connection Idle Timeout**: The maximum time the request can stay idle (connexion is established but waiting for more data) *(default is **120 seconds**)*.
