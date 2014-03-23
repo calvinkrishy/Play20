@@ -3,7 +3,7 @@
 
 ## Make controllers asynchronous
 
-Internally, Play Framework is asynchronous from the bottom up. Play always handles requests in an asynchronous, non-blocking way.
+Internally, Play Framework is asynchronous from the bottom up. Play handles every request in an asynchronous, non-blocking way.
 
 The default configuration is tuned for asynchronous controllers. In other words, the application code should avoid blocking in controllers, i.e., having the controller code wait for an operation. Common examples of such blocking operations are JDBC calls, streaming API, HTTP requests and long computations.
 
@@ -45,7 +45,7 @@ While we were using the `Action.apply` builder method to build actions until now
 
 Play [[actions|ScalaActions]] are asynchronous by default. For instance, in the controller code below, the `{ Ok(...) }` part of the code is not the method body of the controller. It is an anonymous function that is being passed to the `Action` object's `apply` method, which creates an object of type `Action`. Internally, the anonymous function that you wrote will be called and its result will be enclosed in a `Future`.
 
-@[echo-action](../http/code/ScalaActions.scala)
+@[echo-action](/manual/scalaGuide/main/http/code/ScalaActions.scala)
 
 > **Note:** Both `Action.apply` and `Action.async` create `Action` objects that are handled internally in the same way. There is a single kind of `Action`, which is asynchronous, and not two kinds (a synchronous one and an asynchronous one). The `.async` builder is just a facility to simplify creating actions based on APIs that return a `Future`, which makes it easier to write non-blocking code.
 

@@ -490,6 +490,14 @@ package play.templates {
 
     }
 
+    protected def displayVisitedChildren(children: Seq[Any]): Seq[Any] = {
+      children.size match {
+        case 0 => Nil
+        case 1 => Nil :+ "_display_(" :+ children :+ ")"
+        case _ => Nil :+ "_display_(Seq[Any](" :+ children :+ "))"
+      }
+    }
+
     def visit(elem: Seq[TemplateTree], previous: Seq[Any]): Seq[Any] = {
       elem match {
         case head :: tail =>
@@ -505,11 +513,11 @@ package play.templates {
                 "format.raw" :+ Source("(", p.pos) :+ tripleQuote :+ grouped.head :+ tripleQuote :+ ")" :+
                 grouped.tail.flatMap { t => Seq(",\nformat.raw(", tripleQuote, t, tripleQuote, ")") }
             case Comment(msg) => previous
-            case Display(exp) => (if (previous.isEmpty) Nil else previous :+ ",") :+ "_display_(Seq[Any](" :+ visit(Seq(exp), Nil) :+ "))"
+            case Display(exp) => (if (previous.isEmpty) Nil else previous :+ ",") :+ displayVisitedChildren(visit(Seq(exp), Nil))
             case ScalaExp(parts) => previous :+ parts.map {
               case s @ Simple(code) => Source(code, s.pos)
               case b @ Block(whitespace, args, content) if (content.forall(_.isInstanceOf[ScalaExp])) => Nil :+ Source(whitespace + "{" + args.getOrElse(""), b.pos) :+ visit(content, Nil) :+ "}"
-              case b @ Block(whitespace, args, content) => Nil :+ Source(whitespace + "{" + args.getOrElse(""), b.pos) :+ "_display_(Seq[Any](" :+ visit(content, Nil) :+ "))}"
+              case b @ Block(whitespace, args, content) => Nil :+ Source(whitespace + "{" + args.getOrElse(""), b.pos) :+ displayVisitedChildren(visit(content, Nil)) :+ "}"
             }
           })
         case Nil => previous
@@ -663,14 +671,14 @@ object """ :+ name :+ """ extends BaseScalaTemplate[""" :+ resultType :+ """,For
 
           val settings = new Settings
 
-          val scalaObjectSource = Class.forName("scala.ScalaObject").getProtectionDomain.getCodeSource
+          val scalaPredefSource = Class.forName("scala.Predef").getProtectionDomain.getCodeSource
 
           // is null in Eclipse/OSGI but luckily we don't need it there
-          if (scalaObjectSource != null) {
+          if (scalaPredefSource != null) {
             import java.security.CodeSource
             def toAbsolutePath(cs: CodeSource) = new File(cs.getLocation.toURI).getAbsolutePath
             val compilerPath = toAbsolutePath(Class.forName("scala.tools.nsc.Interpreter").getProtectionDomain.getCodeSource)
-            val libPath = toAbsolutePath(scalaObjectSource)
+            val libPath = toAbsolutePath(scalaPredefSource)
             val pathList = List(compilerPath, libPath)
             val origBootclasspath = settings.bootclasspath.value
             settings.bootclasspath.value = ((origBootclasspath :: pathList) ::: additionalClassPathEntry.toList) mkString File.pathSeparator
