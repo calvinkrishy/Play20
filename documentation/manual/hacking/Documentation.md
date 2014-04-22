@@ -35,7 +35,7 @@ object SomeFeatureSpec extends Specification {
     "do something" in {
       //#some-label
       val msg = Seq("Hello", "world").mkString(" ")
-      //#same-label
+      //#some-label
       msg must_== "Hello world"
     }
   }
@@ -51,7 +51,7 @@ In some cases, it may not be possible for the code that should appear in the doc
 * `###replace: foo` - Replace the next line with `foo`.  You may optionally terminate this command with `###`
 * `###insert: foo` - Insert `foo` before the next line.  You may optionally terminate this command with `###`
 * `###skip` - Skip the current line
-* `###skip n` - Skip the next n lines
+* `###skip: n` - Skip the next n lines
 
 For example:
 

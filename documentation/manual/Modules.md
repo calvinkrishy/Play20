@@ -73,6 +73,10 @@
 * **Website (docs, sample):** <https://github.com/typesafehub/play-plugins/tree/master/dust>
 * **Short description:** provides support for the dust client side template language
 
+## Google Closure Template Plugin
+* **Website (docs, sample):** [https://github.com/gawkermedia/play2-closure](https://github.com/gawkermedia/play2-closure)
+* **Short description:** provides support for Google Closure Templates
+
 ## Elasticsearch
 
 * **Website:** <https://github.com/cleverage/play2-elasticsearch>
@@ -104,6 +108,11 @@
 * **Website:** <https://github.com/blabluble/play-geolocation-module>
 * **Documentation:** <https://github.com/blabluble/play-geolocation-module/blob/master/README.md>
 * **Short description:** Module for retrieve Geolocation data based on IP.
+
+## Google's HTML Compressor (Java and Scala)
+* **Website:** <https://github.com/mohiva/play-html-compressor>
+* **Documentation:** <https://github.com/mohiva/play-html-compressor/blob/master/README.md>
+* **Short description:** Google's HTML Compressor for Play 2.
 
 ## Groovy Templates plugin
 

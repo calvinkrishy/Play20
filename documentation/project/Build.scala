@@ -2,14 +2,16 @@
  * Copyright (C) 2009-2013 Typesafe Inc. <http://www.typesafe.com>
  */
 import java.util.jar.JarFile
-import play.console.Colors
+import play.sbtplugin.Colors
 import play.core.server.ServerWithStop
 import sbt._
 import sbt.Keys._
-import play.Keys._
-import play.core.{ SBTDocHandler, SBTLink, PlayVersion }
+import play.Play.autoImport._
+import PlayKeys._
+import play.core.{ BuildDocHandler, BuildLink, PlayVersion }
 import play.PlaySourceGenerators._
 import DocValidation._
+import scala.util.Properties.isJavaAtLeast
 
 object ApplicationBuild extends Build {
 
@@ -66,6 +68,10 @@ object ApplicationBuild extends Build {
     javaManualSourceDirectories <<= (baseDirectory)(base => (base / "manual" / "javaGuide" ** codeFilter).get),
     scalaManualSourceDirectories <<= (baseDirectory)(base => (base / "manual" / "scalaGuide" ** codeFilter).get),
 
+    javaManualSourceDirectories <++= (baseDirectory) { base =>
+      if (isJavaAtLeast("1.8")) (base / "manual" / "javaGuide" ** "java8code").get else Nil
+    },
+
     unmanagedSourceDirectories in Test <++= javaManualSourceDirectories,
     unmanagedSourceDirectories in Test <++= scalaManualSourceDirectories,
     unmanagedSourceDirectories in Test <++= (baseDirectory)(base => (base / "manual" / "detailedTopics" ** codeFilter).get),
@@ -106,7 +112,7 @@ object ApplicationBuild extends Build {
     validateExternalLinks <<= ValidateExternalLinksTask,
 
     testOptions in Test += Tests.Argument(TestFrameworks.Specs2, "sequential", "true", "junitxml", "console"),
-    testOptions in Test += Tests.Argument(TestFrameworks.JUnit, "--ignore-runners=org.specs2.runner.JUnitRunner"),
+    testOptions in Test += Tests.Argument(TestFrameworks.JUnit, "-v", "--ignore-runners=org.specs2.runner.JUnitRunner"),
     testListeners <<= (target, streams).map((t, s) => Seq(new eu.henkelmann.sbt.JUnitXmlTestsListener(t.getAbsolutePath, s.log)))
 
   ).settings(externalPlayModuleSettings:_*)
@@ -125,19 +131,8 @@ object ApplicationBuild extends Build {
     val sbtLoader = this.getClass.getClassLoader
     Project.runTask(dependencyClasspath in Test, state).get._2.toEither.right.map { classpath: Seq[Attributed[File]] =>
       val classloader = new java.net.URLClassLoader(classpath.map(_.data.toURI.toURL).toArray, null /* important here, don't depend of the sbt classLoader! */) {
-        val sharedClasses = Seq(
-          classOf[play.core.SBTLink].getName,
-          classOf[play.core.SBTDocHandler].getName,
-          classOf[play.core.server.ServerWithStop].getName,
-          classOf[play.api.UsefulException].getName,
-          classOf[play.api.PlayException].getName,
-          classOf[play.api.PlayException.InterestingLines].getName,
-          classOf[play.api.PlayException.RichDescription].getName,
-          classOf[play.api.PlayException.ExceptionSource].getName,
-          classOf[play.api.PlayException.ExceptionAttachment].getName)
-
         override def loadClass(name: String): Class[_] = {
-          if (sharedClasses.contains(name)) {
+          if (play.core.classloader.DelegatingClassLoader.isSharedClass(name)) {
             sbtLoader.loadClass(name)
           } else {
             super.loadClass(name)
@@ -150,15 +145,15 @@ object ApplicationBuild extends Build {
         val f = classpath.map(_.data).filter(_.getName.startsWith("play-docs")).head
         new JarFile(f)
       }
-      val sbtDocHandler = {
-        val docHandlerFactoryClass = classloader.loadClass("play.docs.SBTDocHandlerFactory")
+      val buildDocHandler = {
+        val docHandlerFactoryClass = classloader.loadClass("play.docs.BuildDocHandlerFactory")
         val fromDirectoryMethod = docHandlerFactoryClass.getMethod("fromDirectoryAndJar", classOf[java.io.File], classOf[JarFile], classOf[String])
         fromDirectoryMethod.invoke(null, projectPath, docsJarFile, "play/docs/content")
       }
 
       val clazz = classloader.loadClass("play.docs.DocumentationServer")
-      val constructor = clazz.getConstructor(classOf[File], classOf[SBTDocHandler], classOf[java.lang.Integer])
-      val server = constructor.newInstance(projectPath, sbtDocHandler, new java.lang.Integer(port)).asInstanceOf[ServerWithStop]
+      val constructor = clazz.getConstructor(classOf[File], classOf[BuildDocHandler], classOf[java.lang.Integer])
+      val server = constructor.newInstance(projectPath, buildDocHandler, new java.lang.Integer(port)).asInstanceOf[ServerWithStop]
 
       println()
       println(Colors.green("Documentation server started, you can now view the docs by going to http://localhost:" + port))
